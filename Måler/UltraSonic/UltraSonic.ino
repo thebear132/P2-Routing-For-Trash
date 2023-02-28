@@ -14,8 +14,8 @@ delayMicroseconds(2);
 digitalWrite(trigPin, HIGH);
 delayMicroseconds(10);
 digitalWrite(trigPin, LOW);
-duration = pulseIn(echoPin, HIGH);
-distance = (duration/2) / 29.1;
+duration = pulseIn(echoPin, HIGH);    // Måler hvor lang tid pulsen er HØJ
+distance = (duration/2) / 29.1;       // Lydens hastighed. 29.1 cm pr. microsekund.
 
 if (distance >= 2000 ) {
 Serial.println("Out of range");
