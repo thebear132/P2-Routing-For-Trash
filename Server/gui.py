@@ -1,7 +1,8 @@
+# https://realpython.com/pysimplegui-python/#getting-started-with-pysimplegui
+
 import PySimpleGUI as sg
 
-sg.theme('DarkBlue3')   # Add a touch of color
-# All the stuff inside your window.
+sg.theme('DarkBlue3')
 
 map_column = sg.Column([
     [sg.Canvas(key='-graph-', size=(600, 500))],
