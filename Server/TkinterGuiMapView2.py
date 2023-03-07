@@ -9,8 +9,7 @@ window.geometry(f"{800}x{600}")
 window.title("p2.py")
 
 # create map widget
-map_widget = tkintermapview.TkinterMapView(
-    window, width=800, height=600, corner_radius=0)
+map_widget = tkintermapview.TkinterMapView(window, width=800, height=600, corner_radius=0)
 map_widget.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
 # creating starting position in Aalborg
 map_widget.set_position(57.05, 9.925)
