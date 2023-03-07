@@ -1,7 +1,6 @@
 # https://realpython.com/pysimplegui-python/#getting-started-with-pysimplegui
 
 import PySimpleGUI as sg
-import GuiMapView as gmv
 
 sg.theme('DarkBlue3')
 
