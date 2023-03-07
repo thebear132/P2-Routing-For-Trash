@@ -6,23 +6,19 @@ sg.theme('DarkBlue3')
 
 map_column = sg.Column(
     [[sg.Graph(key='-graph-', canvas_size=(800, 600), graph_bottom_left=(0, 0), graph_top_right=(400, 400), background_color="black")],
-     [sg.Text("VORES MAP SKAL VÆRE HER")]])
+     [sg.Text("Aalborg Satellite map", )]], element_justification="center")
 
+info_column = sg.Column(
+    [[sg.Text("Info", justification="center", size=(10, 100))]], element_justification="center")
 
 layout = [
-    [map_column, sg.VSeperator(), sg.Text('Some text on Row 1')]
+    [map_column, sg.VSeperator(), info_column]
 ]
 
 # Create the Window
-window = sg.Window('Window Title', layout, finalize=True)
-# window.Maximize()
+window = sg.Window('Window Title', layout, default_element_size=(12, 1), resizable=True, finalize=True)
 window.size = (1300, 700)
 window.move_to_center()
-window.move(0, 0)
-
-w,h = window.current_size_accurate()
-print(w, h)
-print(window.get_screen_size()[0]-w, window.get_screen_size()[1]-h)
 
 
 
