@@ -2,6 +2,7 @@ import socket
 import sqlite3 as lite
 import numpy as np
 import time
+import threading
 
 class DataStorage:
     """
@@ -35,8 +36,8 @@ class DataStorage:
 
         # --- config vars ---
         self.DB_NAME = "Server\MolokData.db" # fix stien senere
-        self.con = lite.connect(self.DB_NAME)
-        self.cur = self.con.cursor()
+        self.mainCon = lite.connect(self.DB_NAME) # creates connection to DB from main thread
+        self.mainCur = self.mainCon.cursor() # creates cursor for main thread
 
         self.seed = seed
         self.rng = np.random.default_rng(seed=seed) # creates a np.random generator-object with specified seed. Use self.rng for randomness
@@ -70,19 +71,19 @@ class DataStorage:
 
     def getTableNames(self):
         """returns table names from DB"""
-        self.cur.execute("SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
-        return [i[0] for i in list(self.cur)]
+        self.mainCur.execute("SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
+        return [i[0] for i in list(self.mainCur)]
 
     def createTable(self, tableName):
         """creates new table in DB with tableName"""
-        self.cur.execute(f"CREATE TABLE {tableName}(molokID INT, molokPos TUPLE, fillPct INT, timestamp INT)")
+        self.mainCur.execute(f"CREATE TABLE {tableName}(molokID INT, molokPos TUPLE, fillPct REAL, timestamp REAL)")
         return True
 
     def showTableByName(self, TableName):
         """shows Table with TableName from DB"""
-        self.cur.execute(f"SELECT * FROM '{TableName}'")
+        self.mainCur.execute(f"SELECT * FROM '{TableName}'")
 
-        return np.array(list(self.cur))
+        return np.array(list(self.mainCur))
     
     def dropTable(self, tableName):
         """
@@ -91,45 +92,66 @@ class DataStorage:
         This method deletes a table by TableName FOREVER!
         """
         # check if tableName is in DB:
-        self.cur.execute(f"DROP TABLE IF EXISTS '{tableName}'")
+        self.mainCur.execute(f"DROP TABLE IF EXISTS '{tableName}'")
         return f"You just deleted table {tableName} if it even existed"
-
-    
-    def handleSimThread(self):
-        """handles comms with simulation. Only call if simulating.
-        Runs handleSim() in a thread."""
-
-        pass
 
     def handleSim(self):
         """Called by handleSimThread(). Handles comms with sim"""
 
-        msg, clientADDR = self.socket.recvfrom(self.BUFFER_SIZE) # socket.recvfrom() also returns senders ADDR.
-
-        pass
+        # creating and starting sim thread
+        self.simThread = threading.Thread(target=self.writeToDB, args=["sim"])
+        self.simThread.start()
 
     def handleSigfox(self):
         """handles comms with sigfox. Only call if using measuring devices"""
         pass
 
-    def log(self, molokId, fillPct, datetime):
-        """logs data from comms handling functions 'handleSigfox' or 'handleSim' into self.df"""
+    def writeToDB(self, cursor: str):
+        """logs data from comms handling functions 'handleSigfox' or 'handleSim' into DB"""
+        if cursor == "sim":
+            # --- DB vars ---
+            self.simCon = lite.connect(self.DB_NAME) # creates connection to DB from sim thread
+            self.simCur = self.simCon.cursor() # creates cursor for sim thread
+            
+            while True:
+                msg, clientADDR = self.socket.recvfrom(self.BUFFER_SIZE) # socket.recvfrom() also returns senders ADDR.
+                msg = msg.decode()
+                msg = msg.split()
+                print(f"recieved msg: {msg} from {clientADDR}")
+                
+                # splitting msg
+                molokId = int(msg[0].strip(")(, ")) # removes chars and changes to int
+                fillPct = float(msg[1].strip(")(, "))
+                timestamp = float(msg[2].strip(")(, "))
+                
+                # finding molok pos with molok ID
+                self.simCur.execute(f"SELECT molokPos FROM '{self.TableName}' WHERE molokID = '{molokId}'")
+                molokPos = tuple(self.simCur)
 
-    
+                # writing sim msg to DB
+                self.simCur.execute(f"INSERT INTO '{self.TableName}' VALUES ('{molokId}', '{molokPos}', '{fillPct}', '{timestamp}')")
+                self.simCon.commit()
+
 
 if __name__ == "__main__":
     
     molok_Ids = [0, 1, 2, 3, 4]
     molok_pos = [(22, 10), (67, 24), (76, 54), (80, 100), (10, 10)]
 
-    myDS = DataStorage(69, molok_Ids, molok_pos)
+    myDS = DataStorage(69, molok_Ids, molok_pos, ADDR=('192.168.137.1', 9999))
 
-    print(f"showing all tables in DB: {myDS.getTableNames()}")
+    # print(f"showing all tables in DB: {myDS.getTableNames()}")
 
-    print(f"{myDS.TableName} exists in DB: {myDS.TableName in myDS.getTableNames()}")
+    # print(f"{myDS.TableName} exists in DB: {myDS.TableName in myDS.getTableNames()}")
 
     print(f" showing table {myDS.TableName}: {myDS.showTableByName(myDS.TableName)}")
 
-    print(f" Dropping table {'seed69_NumM5'}: {myDS.dropTable('seed69_NumM5')}")
+    # print(f" Dropping table {'seed69_NumM5'}: {myDS.dropTable('seed69_NumM5')}")
 
-    print(myDS.getTableNames())
+    # print(myDS.getTableNames())
+
+    # myDS.handleSim()
+
+    for i in range(5):
+        time.sleep(10)
+        print(f" showing table {myDS.TableName}: {myDS.showTableByName(myDS.TableName)}")
