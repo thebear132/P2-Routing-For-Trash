@@ -126,7 +126,14 @@ class DataStorage:
                 
                 # finding molok pos with molok ID
                 self.simCur.execute(f"SELECT molokPos FROM '{self.TableName}' WHERE molokID = '{molokId}'")
-                molokPos = tuple(self.simCur)
+                molokPos = self.simCur.fetchone() # Getting molokPos. Returns None if empty
+                try: molokPos = molokPos[0] # molokPos is either None or ((),) , so this tries to get the inner tuple
+                except Exception as e:
+                    pass
+
+                if molokPos == None:
+                    # print(f"molokpos empty. Inserting from self.molokPos[molokId]")
+                    molokPos = self.molokPos[molokId]
 
                 # writing sim msg to DB
                 self.simCur.execute(f"INSERT INTO '{self.TableName}' VALUES ('{molokId}', '{molokPos}', '{fillPct}', '{timestamp}')")
@@ -138,20 +145,20 @@ if __name__ == "__main__":
     molok_Ids = [0, 1, 2, 3, 4]
     molok_pos = [(22, 10), (67, 24), (76, 54), (80, 100), (10, 10)]
 
-    myDS = DataStorage(69, molok_Ids, molok_pos, ADDR=('192.168.137.1', 9999))
+    myDS = DataStorage(69, molok_Ids, molok_pos)
 
     # print(f"showing all tables in DB: {myDS.getTableNames()}")
 
     # print(f"{myDS.TableName} exists in DB: {myDS.TableName in myDS.getTableNames()}")
 
-    print(f" showing table {myDS.TableName}: {myDS.showTableByName(myDS.TableName)}")
+    print(f" showing table {myDS.TableName}: \n {myDS.showTableByName(myDS.TableName)}")
 
     # print(f" Dropping table {'seed69_NumM5'}: {myDS.dropTable('seed69_NumM5')}")
 
     # print(myDS.getTableNames())
 
-    # myDS.handleSim()
+    myDS.handleSim()
 
     for i in range(5):
-        time.sleep(10)
-        print(f" showing table {myDS.TableName}: {myDS.showTableByName(myDS.TableName)}")
+        time.sleep(6)
+        print(f" showing table {myDS.TableName}: \n {myDS.showTableByName(myDS.TableName)}")
