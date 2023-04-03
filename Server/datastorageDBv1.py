@@ -47,14 +47,18 @@ class DataStorage:
 
         # --- socket vars ---
         if type(ADDR) == tuple: # checks that user wants to create socket for UDP comms with simulation
-            self.ADDR = ADDR
+            self.simADDR = ADDR
             self.BUFFER_SIZE = 1024
+            self.END_MSG = "end"
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) # IPv4, UDP
+            self.allowSim = threading.Event() # Creating flag for simulation control
+            self.allowSim.set()
 
-            self.socket.bind(self.ADDR)
+            self.socket.connect(self.simADDR)
+            
 
             print('Provided ADDR indicates simulation is to be run. UDP server running...')
-            print(f'Listening for incoming messages on address '+str(self.ADDR))
+            print(f'Listening for incoming messages on address '+str(self.simADDR))
         
         # --- sigfox vars ---
         else: # if not simulation, then sigfox comms
@@ -114,10 +118,44 @@ class DataStorage:
         self.mainCur.execute(f"DROP TABLE IF EXISTS '{tableName}'")
         return f"You just deleted table {tableName} if it even existed"
 
+    def contactSim(self):
+        """
+        Tells simulation to start using our self made protocol called C22-SIM Protocol.
+        
+        """
+        if self.allowSim.is_set(): # If allowSim == True
+
+            lastFillpctList = []
+            lastRowList = self.fetchLatestRows(self.TableName)
+            for i in lastRowList:
+                fillpct = i[3]
+                lastFillpctList.append(fillpct)
+            sendsPrDay = 2
+            first_msg = f"{[self.seed, self.numMoloks, lastFillpctList, sendsPrDay]}"
+            print(f"First message: {first_msg}")
+            self.socket.send(first_msg.encode('utf-8')) 
+            print("First message: Complete...")
+        else:
+            print("allowSim == False; wait for current simulation to stop to start a new one!")
+        
+        hash_value = hash(first_msg)
+        print(hash_value)
+        
+        hash_request = self.socket.recv(self.BUFFER_SIZE)
+        hash_request = hash_request.decode()
+        print(f"recieved hash request: {hash_request}")
+
+        if hash_value == hash_request:
+            self.socket.send("proceed".encode('utf-8'))
+        else: 
+            self.socket.send("Hash do not match".encode('utf-8'))
+
+
     def handleSim(self):
         """Handles comms with simulation in a thread"""
 
         # creating and starting sim thread
+
         self.simThread = threading.Thread(target=self.writeToDB, args=["sim"])
         self.simThread.start()
 
@@ -142,11 +180,16 @@ class DataStorage:
 
 
             while True:
-                msg, clientADDR = self.socket.recvfrom(self.BUFFER_SIZE) # socket.recvfrom() also returns senders ADDR.
+
+                msg = self.socket.recv(self.BUFFER_SIZE) # socket.recvfrom() also returns senders ADDR.
                 msg = msg.decode()
                 msg = msg.split()
-                print(f"recieved msg: {msg} from {clientADDR}")
+                print(f"recieved msg: {msg}")
                 
+                if msg == self.END_MSG:
+                    print("ack end")
+
+
                 # splitting msg
                 molokId = int(msg[0].strip(")(, ")) # removes chars and changes to int
                 fillPct = float(msg[1].strip(")(, "))
@@ -192,6 +235,8 @@ if __name__ == "__main__":
     # print(myDS.fetchColumn(myDS.TableName, 'fillPct'))
 
     # print(myDS.fetchLatestRows(myDS.TableName))
+
+    print(myDS.contactSim())
 
     # myDS.handleSim()
 
