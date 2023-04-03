@@ -187,7 +187,8 @@ class DataStorage:
                 print(f"recieved msg: {msg}")
                 
                 if msg == self.END_MSG:
-                    print("ack end")
+                    ack_end = self.socket.send("acknowledge end".encode("utf-8"))
+                    print(f"{ack_end}, has been send to simulation")
 
 
                 # splitting msg
