@@ -100,15 +100,9 @@ class DataStorage:
     def fetchLatestRows(self, TableName):
         """returns array containing a row for each molokId with its latest timestamp. Considered slow since it loops over self.numMoloks"""
         # code which almost works and would be faster
-        # self.mainCur.execute(f"SELECT molokID, molokPos, fillPct, MAX(timestamp) FROM '{TableName}' GROUP BY molokID")
-        # return np.array(self.mainCur.fetchall())
-
-        result = np.zeros(shape=(self.numMoloks, 4), dtype='<U32') # creates results matrix with num rows = numMoloks. dtype was found to be '<U32'
-        for i in range(self.numMoloks):
-            row = self.fetchDataByMolokId(TableName, i)[-1] # the last index is the last entry for the molok
-            result[i] = row
+        self.mainCur.execute(f"SELECT MAX(ID), molokID, molokPos, fillPct, timestamp FROM '{TableName}' GROUP BY molokID")
         
-        return result
+        return np.array(self.mainCur.fetchall())
 
     def dropTable(self, tableName):
         """
@@ -189,7 +183,7 @@ if __name__ == "__main__":
 
     # print(f" Dropping table {'seed69_NumM5'}: {myDS.dropTable('seed69_NumM5')}")
 
-    print(myDS.getTableNames())
+    # print(myDS.getTableNames())
 
     # print(myDS.showColumnNamesByTableName(myDS.TableName))
 
@@ -199,7 +193,7 @@ if __name__ == "__main__":
 
     # print(myDS.fetchLatestRows(myDS.TableName))
 
-    myDS.handleSim()
+    # myDS.handleSim()
 
     # for i in range(5):
     #     time.sleep(6)
