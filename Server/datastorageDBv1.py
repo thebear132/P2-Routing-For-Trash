@@ -4,18 +4,12 @@ import numpy as np
 import time
 import threading
 
+
 class DataStorage:
     """
     Handles data from sigfox or simulation.
-
-    Logs data in pd.dataframe
-
-    Stores data in CSV as "cold storage" - works!
-
-    Loads CSV if simulation continues at later time - works!
-
+    Logs data in DB
     Manipulates data and presents it to 'Route Planner' or 'GUI'
-
     """
 
     def __init__(self, seed: any, molok_Ids = [], molok_positions = [], ADDR = ('127.0.0.1', 9999)) -> None:
@@ -60,7 +54,7 @@ class DataStorage:
             self.socket.bind(self.ADDR)
 
             print('Provided ADDR indicates simulation is to be run. UDP server running...')
-            print(f'Listening for incoming connections on address '+str(self.ADDR))
+            print(f'Listening for incoming messages on address '+str(self.ADDR))
         
         # --- sigfox vars ---
         else: # if not simulation, then sigfox comms
@@ -76,7 +70,7 @@ class DataStorage:
 
     def createTable(self, tableName):
         """creates new table in DB with tableName"""
-        self.mainCur.execute(f"CREATE TABLE {tableName}(molokID INT, molokPos TUPLE, fillPct REAL, timestamp REAL)")
+        self.mainCur.execute(f"CREATE TABLE {tableName}(ID INTEGER PRIMARY KEY, molokID INTEGER, molokPos TUPLE, fillPct REAL, timestamp REAL)")
         return True
 
     def showTableByName(self, TableName):
@@ -85,6 +79,37 @@ class DataStorage:
 
         return np.array(list(self.mainCur))
     
+    def showColumnNamesByTableName(self, TableName):
+        """Shows columns of specified table with TableName"""
+        self.mainCur.execute(f"PRAGMA table_info('{TableName}')")
+
+        return np.array(self.mainCur.fetchall())
+
+    def fetchDataByMolokId(self,TableName, Id):
+        """Returns all rows with specified Id"""
+        self.mainCur.execute(f"SELECT * FROM '{TableName}' WHERE molokID = '{Id}'")
+
+        return np.array(self.mainCur.fetchall()) 
+    
+    def fetchColumn(self, TableName, ColumnName):
+        """Returns a specified column as a Numpy array"""
+        self.mainCur.execute(f"SELECT {ColumnName} FROM '{TableName}'")
+
+        return np.array(self.mainCur.fetchall())
+    
+    def fetchLatestRows(self, TableName):
+        """returns array containing a row for each molokId with its latest timestamp. Considered slow since it loops over self.numMoloks"""
+        # code which almost works and would be faster
+        # self.mainCur.execute(f"SELECT molokID, molokPos, fillPct, MAX(timestamp) FROM '{TableName}' GROUP BY molokID")
+        # return np.array(self.mainCur.fetchall())
+
+        result = np.zeros(shape=(self.numMoloks, 4), dtype='<U32') # creates results matrix with num rows = numMoloks. dtype was found to be '<U32'
+        for i in range(self.numMoloks):
+            row = self.fetchDataByMolokId(TableName, i)[-1] # the last index is the last entry for the molok
+            result[i] = row
+        
+        return result
+
     def dropTable(self, tableName):
         """
         EXTREME DANGER!!!!!
@@ -96,7 +121,7 @@ class DataStorage:
         return f"You just deleted table {tableName} if it even existed"
 
     def handleSim(self):
-        """Called by handleSimThread(). Handles comms with sim"""
+        """Handles comms with simulation in a thread"""
 
         # creating and starting sim thread
         self.simThread = threading.Thread(target=self.writeToDB, args=["sim"])
@@ -113,6 +138,15 @@ class DataStorage:
             self.simCon = lite.connect(self.DB_NAME) # creates connection to DB from sim thread
             self.simCur = self.simCon.cursor() # creates cursor for sim thread
             
+
+
+            # control simulation
+            """must send seed, the latest fillPct and numMoloks to sim
+            TODO:
+            make thread for control comms with sim?
+            """
+
+
             while True:
                 msg, clientADDR = self.socket.recvfrom(self.BUFFER_SIZE) # socket.recvfrom() also returns senders ADDR.
                 msg = msg.decode()
@@ -136,7 +170,7 @@ class DataStorage:
                     molokPos = self.molokPos[molokId]
 
                 # writing sim msg to DB
-                self.simCur.execute(f"INSERT INTO '{self.TableName}' VALUES ('{molokId}', '{molokPos}', '{fillPct}', '{timestamp}')")
+                self.simCur.execute(f"INSERT INTO {self.TableName} (molokId, molokPos, fillPct, timestamp) VALUES (?,?,?,?)", (molokId, str(molokPos), fillPct, timestamp))
                 self.simCon.commit()
 
 
@@ -147,7 +181,7 @@ if __name__ == "__main__":
 
     myDS = DataStorage(69, molok_Ids, molok_pos)
 
-    # print(f"showing all tables in DB: {myDS.getTableNames()}")
+    # print(f"showing all table names in DB: {myDS.getTableNames()}")
 
     # print(f"{myDS.TableName} exists in DB: {myDS.TableName in myDS.getTableNames()}")
 
@@ -155,10 +189,18 @@ if __name__ == "__main__":
 
     # print(f" Dropping table {'seed69_NumM5'}: {myDS.dropTable('seed69_NumM5')}")
 
-    # print(myDS.getTableNames())
+    print(myDS.getTableNames())
+
+    # print(myDS.showColumnNamesByTableName(myDS.TableName))
+
+    # print(type(myDS.fetchDataByMolokId(myDS.TableName, 2)[0][4]))
+
+    # print(myDS.fetchColumn(myDS.TableName, 'fillPct'))
+
+    # print(myDS.fetchLatestRows(myDS.TableName))
 
     myDS.handleSim()
 
-    for i in range(5):
-        time.sleep(6)
-        print(f" showing table {myDS.TableName}: \n {myDS.showTableByName(myDS.TableName)}")
+    # for i in range(5):
+    #     time.sleep(6)
+    #     print(f" showing table {myDS.TableName}: \n {myDS.showTableByName(myDS.TableName)}")
