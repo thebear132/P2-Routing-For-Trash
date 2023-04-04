@@ -51,14 +51,20 @@ class DataStorage:
             self.BUFFER_SIZE = 1024
             self.END_MSG = "end"
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) # IPv4, UDP
-            self.allowSim = threading.Event() # Creating flag for simulation control
-            self.allowSim.set()
 
-            self.socket.connect(self.simADDR)
+            self.allowSim = threading.Event() # Creating flag for simulation control
+            self.allowSim.set() # allowSim = True
+
+            self.socketLock = threading.Lock()
+
+            # self.socket.connect(self.simADDR) # connecting to simulation address
+            self.socket.bind(self.simADDR)
+
+            self.simThread = None # creating simThread variable
             
 
-            print('Provided ADDR indicates simulation is to be run. UDP server running...')
-            print(f'Listening for incoming messages on address '+str(self.simADDR))
+            print('Provided ADDR indicates simulation is to be run. UDP client running...')
+            # print(f'Listening for incoming messages on address '+str(self.simADDR))
         
         # --- sigfox vars ---
         else: # if not simulation, then sigfox comms
@@ -102,8 +108,7 @@ class DataStorage:
         return np.array(self.mainCur.fetchall())
     
     def fetchLatestRows(self, TableName):
-        """returns array containing a row for each molokId with its latest timestamp. Considered slow since it loops over self.numMoloks"""
-        # code which almost works and would be faster
+        """returns array containing a row for each molokId with its latest ID"""
         self.mainCur.execute(f"SELECT MAX(ID), molokID, molokPos, fillPct, timestamp FROM '{TableName}' GROUP BY molokID")
         
         return np.array(self.mainCur.fetchall())
@@ -118,78 +123,94 @@ class DataStorage:
         self.mainCur.execute(f"DROP TABLE IF EXISTS '{tableName}'")
         return f"You just deleted table {tableName} if it even existed"
 
-    def contactSim(self):
+    def contactSim(self) -> bool:
         """
-        Tells simulation to start using our self made protocol called C22-SIM Protocol.
+        Tells simulation to start using our self made protocol called C22-SIM Protocol. return True if it succeeded, False if not
         
         """
-        if self.allowSim.is_set(): # If allowSim == True
-
-            lastFillpctList = []
-            lastRowList = self.fetchLatestRows(self.TableName)
-            for i in lastRowList:
-                fillpct = i[3]
-                lastFillpctList.append(fillpct)
-            sendsPrDay = 2
-            first_msg = f"{[self.seed, self.numMoloks, lastFillpctList, sendsPrDay]}"
-            print(f"First message: {first_msg}")
-            self.socket.send(first_msg.encode('utf-8')) 
-            print("First message: Complete...")
-        else:
-            print("allowSim == False; wait for current simulation to stop to start a new one!")
         
-        hash_value = hash(first_msg)
-        print(hash_value)
-        
-        hash_request = self.socket.recv(self.BUFFER_SIZE)
-        hash_request = hash_request.decode()
-        print(f"recieved hash request: {hash_request}")
+        with self.socketLock: # auto acquires lock and releases it when done
+            # This is done to ensure that the two threads do not mess with the protocols communication by "stealing" msg from oneanother
 
-        if hash_value == hash_request:
-            self.socket.send("proceed".encode('utf-8'))
-        else: 
-            self.socket.send("Hash do not match".encode('utf-8'))
+            if self.allowSim.is_set(): # If allowSim == True
+                
+                # creates list of fillPcts to send to sim
+                lastFillpctList = []
+                lastRowList = self.fetchLatestRows(self.TableName)
+                for i in lastRowList:
+                    fillpct = i[3]
+                    lastFillpctList.append(fillpct)
+                
+                # creates message with nescessary data for sim
+                sendsPrDay = 2
+                first_msg = f"{[self.seed, self.numMoloks, lastFillpctList, sendsPrDay]}"
+                print(f"First message of protocol: {first_msg}")
+
+                # sending message to sim with socket.send. Lookup use of socket.connect and socket.send if in doubt
+                self.socket.send(first_msg.encode('utf-8')) # using socket.recv() from now on will return messages from simADDR.
+                # using socket.recv() from now on will return messages from simADDR.
+                print("Sent first message.")
+            else:
+                print("allowSim == False; wait for current simulation to stop to start a new one!")
+            
+            # hashing msg to compare to answer from sim. Sim hashes msg and sends it back to datastorage for validation.
+            hash_value = hash(first_msg)
+            print(f"hash of first msg: {hash_value}")
+            
+            # recieving hash from sim
+            hash_request = self.socket.recv(self.BUFFER_SIZE)
+            hash_request = hash_request.decode()
+            print(f"recieved hash request: {hash_request}")
+
+            # confirming that sim got correct information by comparing hashes
+            if hash_value == hash_request:
+                self.socket.send("proceed".encode('utf-8'))
+                # handshake done, clearing allowSim-flag (setting to False). handleSim() handles the rest of the protocol.
+                self.allowSim.clear()
+                self.handleSim()
+                return True
+            else: 
+                self.socket.send("hash failed".encode('utf-8'))
+                return False
 
 
     def handleSim(self):
         """Handles comms with simulation in a thread"""
 
-        # creating and starting sim thread
-
-        self.simThread = threading.Thread(target=self.writeToDB, args=["sim"])
-        self.simThread.start()
+        # creating and starting sim thread if simThread does not yet exist
+        activeThreads = threading.enumerate()
+        if not self.simThread in activeThreads:
+            print("starting thread as there was no self.simThread")
+            self.simThread = threading.Thread(target=self.writeToDB, args=["sim", self.socketLock], name='writeToDBThread')
+            self.simThread.start()
+        
+        else: print("Thread is already active")
 
     def handleSigfox(self):
         """handles comms with sigfox. Only call if using measuring devices"""
         pass
 
-    def writeToDB(self, cursor: str):
+    def writeToDB(self, cursor: str, lock):
         """logs data from comms handling functions 'handleSigfox' or 'handleSim' into DB"""
         if cursor == "sim":
             # --- DB vars ---
             self.simCon = lite.connect(self.DB_NAME) # creates connection to DB from sim thread
             self.simCur = self.simCon.cursor() # creates cursor for sim thread
-            
-
-
-            # control simulation
-            """must send seed, the latest fillPct and numMoloks to sim
-            TODO:
-            make thread for control comms with sim?
-            """
-
 
             while True:
 
-                msg = self.socket.recv(self.BUFFER_SIZE) # socket.recvfrom() also returns senders ADDR.
-                msg = msg.decode()
+                with lock: # auto acquires lock and releases it when the threads iteration of while True is done with the socket
+                    msg = self.socket.recv(self.BUFFER_SIZE) # socket.recvfrom() also returns senders ADDR.
+                    msg = msg.decode()
+
+                    if msg == self.END_MSG: # when simulation is done
+                        self.socket.send("acknowledge end".encode("utf-8"))
+                        print(f"'acknowledge end' has been sent to simulation")
+                        self.allowSim.set() # sets flag to True, so that contactSim() can be run again
+
+                # from hereon the socketLock is released so that the socket may be used elsewhere
                 msg = msg.split()
                 print(f"recieved msg: {msg}")
-                
-                if msg == self.END_MSG:
-                    ack_end = self.socket.send("acknowledge end".encode("utf-8"))
-                    print(f"{ack_end}, has been send to simulation")
-
 
                 # splitting msg
                 molokId = int(msg[0].strip(")(, ")) # removes chars and changes to int
@@ -219,6 +240,10 @@ if __name__ == "__main__":
 
     myDS = DataStorage(69, molok_Ids, molok_pos)
 
+
+
+
+    """Outcomment if you want to test"""
     # print(f"showing all table names in DB: {myDS.getTableNames()}")
 
     # print(f"{myDS.TableName} exists in DB: {myDS.TableName in myDS.getTableNames()}")
@@ -237,9 +262,9 @@ if __name__ == "__main__":
 
     # print(myDS.fetchLatestRows(myDS.TableName))
 
-    print(myDS.contactSim())
+    # print(myDS.contactSim())
 
-    # myDS.handleSim()
+    myDS.handleSim()
 
     # for i in range(5):
     #     time.sleep(6)
