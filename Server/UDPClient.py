@@ -8,7 +8,7 @@ BUFFER_SIZE = 1024
 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) #Ipv4 & User datagram protocol = UDP
 
 numMoloks = 5
-numSends = 3
+numSends = 1
 
 for send in range(numSends):
     for molokId in range(numMoloks):
