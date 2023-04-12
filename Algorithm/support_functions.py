@@ -7,7 +7,7 @@ import folium
 
 def create_map(location=(57.04830168757387, 9.915331444926698), zoom_start=17, max_zoom=24) -> object:
     """
-    Creates a empty folium.Map object.
+    Creates an empty folium.Map object.
 
     Inputs:
     ---
@@ -117,6 +117,20 @@ def create_distance_matrix(num_moloks:int, coords_array, dtype=np.int64, decimal
     
     return distance_matrix
 
+def molokTimeWindows(fillPcts, estGrowthrates):
+    """returns list of list of molok time windows to be used in the route planner. they are calculated on a minute basis on form [0, n].
+     0 being the 0th minute from starting the route and n being the minute that the molok reaches 100% fill"""
+
+    TWs = [0] * len(fillPcts) # time windows list
+    
+     # solve for x: 100 = a*x + b -> x = (100-b)/a
+     # a = growthrate, b= fillPct, and x is minutes
+    for i in range(len(fillPcts)):
+        x = (100 - fillPcts[i])/estGrowthrates[i]
+        TWs[i] = [0, x]
+
+    return TWs
+
 if __name__ == '__main__':
     num_moloks = 10
 
@@ -131,4 +145,9 @@ if __name__ == '__main__':
     dist_matrix = create_distance_matrix(num_moloks, locations)
 
     print(dist_matrix)
+
+    fillPcts = [80, 86, 87, 82]
+    growthRates = [0.05, 0.04, 0.035, 0.02]
+
+    print(molokTimeWindows(fillPcts, growthRates))
     

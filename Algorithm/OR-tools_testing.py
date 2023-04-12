@@ -55,7 +55,7 @@ def main(distance_matrix, num_vehicles, depot_index=0):
         # Convert from routing variable Index to distance matrix NodeIndex.
         from_node = manager.IndexToNode(from_index)
         to_node = manager.IndexToNode(to_index)
-        return data['distance_matrix'][from_node][to_node] # !------- VIGTIGT --------! Tilføjede round her.
+        return data['distance_matrix'][from_node][to_node]
 
     transit_callback_index = routing.RegisterTransitCallback(distance_callback)
 
@@ -93,7 +93,7 @@ if __name__ == '__main__':
 
     # VRP vars
     num_moloks = 100
-    num_vehicles = 20
+    num_vehicles = 10
 
     # simulation variables
     depot_position = (57.04830168757387, 9.915331444926698)
