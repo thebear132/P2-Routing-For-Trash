@@ -136,16 +136,19 @@ class DataStorage:
         self.simCon = lite.connect(self.DB_NAME) # creates connection to DB from sim thread
         self.simCur = self.simCon.cursor() # creates cursor for sim thread
         
-        # creates list of fillPcts to send to sim
+        # creates list of fillPcts to send to sim and creates list of latest timestamps by molokID
         lastFillpctList = []
+        latest_timestamps = []
         lastRowList = self.fetchLatestRows(self.TableName, "sim")
         for i in lastRowList:
             fillpct = i[3]
+            timestamp = i[4]
             lastFillpctList.append(fillpct)
+            latest_timestamps.append(timestamp)
         
         # creates message with nescessary data for sim. The list is pickled for easy use on sim-side.
         sendsPrDay = sendFreq
-        initData = [self.seed, self.numMoloks, lastFillpctList, sendsPrDay]
+        initData = [self.seed, self.numMoloks, lastFillpctList, sendsPrDay, latest_timestamps]
         print(f"First message of protocol: {initData}")
         initDataPickle = pickle.dumps(initData)
 
@@ -258,7 +261,7 @@ if __name__ == "__main__":
     myDS = DataStorage(69, molok_Ids, molok_pos)
 
 
-    testOfSimThread(myDS)
+    # testOfSimThread(myDS)
 
 
     """Outcomment if you want to test"""
@@ -278,7 +281,7 @@ if __name__ == "__main__":
 
     # print(myDS.fetchColumn(myDS.TableName, 'fillPct'))
 
-    # print(myDS.fetchLatestRows(myDS.TableName))
+    print(myDS.fetchLatestRows(myDS.TableName, "main"))
 
     # print(myDS.contactSim())
 
