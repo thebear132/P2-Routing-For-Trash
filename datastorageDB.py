@@ -183,7 +183,6 @@ class DataStorage:
         try:
             while True: # loop until self.END_MSG is received or socket times out
 
-
                 msg = self.socket.recv(self.BUFFER_SIZE) # socket.recvfrom() also returns senders ADDR.
                 msg = msg.decode()
 
@@ -192,7 +191,6 @@ class DataStorage:
                     print(f"'acknowledge end' has been sent to simulation. Breaking out of loop and ending thread")
                     break
 
-                # from hereon the socketLock is released so that the socket may be used elsewhere
                 msg = msg.split()
                 print(f"recieved msg: {msg}")
 
