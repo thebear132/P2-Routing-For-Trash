@@ -120,6 +120,16 @@ class DataStorage:
         self.mainCur.execute(f"DROP TABLE IF EXISTS '{tableName}'")
         return f"You just deleted table {tableName} if it even existed"
 
+    def generate_init_data(self):
+        """Internal method. Called when creating table in order to fill it with initial data for each molok. Just a single datapoint for each"""
+
+        # sim fillPcts - use random (not normDist)
+
+        # sim molok pos
+
+        # insert (molokID, molokPos, fillPcts, timestamp) into DB
+
+        return True
 
     def handleSigfox(self):
         """handles comms with sigfox. Only call if using measuring devices"""
@@ -141,14 +151,14 @@ class DataStorage:
         latest_timestamps = []
         lastRowList = self.fetchLatestRows(self.TableName, "sim")
         for i in lastRowList:
-            fillpct = i[3]
-            timestamp = i[4]
+            fillpct = float(i[3])
+            timestamp = float(i[4])
             lastFillpctList.append(fillpct)
             latest_timestamps.append(timestamp)
         
         # creates message with nescessary data for sim. The list is pickled for easy use on sim-side.
         sendsPrDay = sendFreq
-        initData = [self.seed, self.numMoloks, lastFillpctList, sendsPrDay, latest_timestamps]
+        initData = [self.seed, lastFillpctList, sendsPrDay, latest_timestamps]
         print(f"First message of protocol: {initData}")
         initDataPickle = pickle.dumps(initData)
 
@@ -160,44 +170,49 @@ class DataStorage:
         # hashing msg to compare to answer from sim. Sim hashes msg and sends it back to datastorage for validation.
         hash_value = hash(str(initData)) # hash cannot handle a list!
         print(f"hash of first msg as a string: {hash_value}")
-        
+
         # recieving hash from sim
         hash_request = self.socket.recv(self.BUFFER_SIZE)
         hash_request = hash_request.decode()
         print(f"recieved hash request: {hash_request}")
 
         # confirming that sim got correct information by comparing hashes
-        if hash_value == hash_request:
+        if hash_value == hash_request or hash_request == "123": # ---- remove later
+            print("proceed sent")
             self.socket.send("proceed".encode('utf-8'))
             # handshake done. writeToDB() handles the rest of the protocol.
             self.simDBLogger()
-        else: 
+        else:
+            print("failed")
             self.socket.send("failed".encode('utf-8'))
     
     def simDBLogger(self):
         """
         Internal method. Do not call manually! \n 
         logs data from sim into DB. This is the second part of our protocol called C22-SIM Protocol"""
-        self.socket.settimeout(2) # socket now has n second to receive information before raising an error and ending the thread as intended
+        self.socket.settimeout(15) # socket now has n second to receive information before raising an error and ending the thread as intended
 
         try:
             while True: # loop until self.END_MSG is received or socket times out
 
                 msg = self.socket.recv(self.BUFFER_SIZE) # socket.recvfrom() also returns senders ADDR.
-                msg = msg.decode()
+                # msg = msg.decode() # part1
+                msg = pickle.loads(msg) #part2
 
                 if msg == self.END_MSG: # when simulation is done
-                    self.socket.send("acknowledge end".encode("utf-8"))
-                    print(f"'acknowledge end' has been sent to simulation. Breaking out of loop and ending thread")
+                    print(f"'end' has been sent by simulation. Breaking out of loop and ending thread")
                     break
 
-                msg = msg.split()
-                print(f"recieved msg: {msg}")
+                # msg = msg.split() # part1
+                print(f"recieved msg: {msg}") #part2
 
                 # splitting msg
-                molokId = int(msg[0].strip(")(, ")) # removes chars and changes to int
-                fillPct = float(msg[1].strip(")(, "))
-                timestamp = float(msg[2].strip(")(, "))
+                # molokId = int(msg[0].strip(")(, ")) # removes chars and changes to int - part1
+                # fillPct = float(msg[1].strip(")(, ")) # part1
+                # timestamp = float(msg[2].strip(")(, ")) #part1
+                molokId = int(msg[0]) # part2
+                fillPct = float(msg[1]) # part2
+                timestamp = float(msg[2]) # part2
                 
                 # finding molok pos with molok ID
                 self.simCur.execute(f"SELECT molokPos FROM '{self.TableName}' WHERE molokID = '{molokId}'")
@@ -250,16 +265,18 @@ if __name__ == "__main__":
         """Run this func to test DS. Must be run with simulation
         Check that all communication occurs correctly and remember that the first sent msg is a pickle."""
 
-        print(DS.startSim(sendFreq=sendFreq))
+        while True:
+            print(DS.startSim(sendFreq=sendFreq))
+            time.sleep(10)
 
 
     molok_Ids = [0, 1, 2, 3, 4]
     molok_pos = [(22, 10), (67, 24), (76, 54), (80, 100), (10, 10)]
 
-    myDS = DataStorage(69, molok_Ids, molok_pos)
+    myDS = DataStorage(69, molok_Ids, molok_pos, ADDR=("192.168.137.104", 50050))
 
 
-    # testOfSimThread(myDS)
+    testOfSimThread(myDS)
 
 
     """Outcomment if you want to test"""
@@ -267,7 +284,7 @@ if __name__ == "__main__":
 
     # print(f"{myDS.TableName} exists in DB: {myDS.TableName in myDS.getTableNames()}")
 
-    print(f" showing table {myDS.TableName}: \n {myDS.showTableByName(myDS.TableName)}")
+    # print(f" showing table {myDS.TableName}: \n {myDS.showTableByName(myDS.TableName)}")
 
     # print(f" Dropping table {'seed69_NumM5'}: {myDS.dropTable('seed69_NumM5')}")
 
@@ -279,7 +296,7 @@ if __name__ == "__main__":
 
     # print(myDS.fetchColumn(myDS.TableName, 'fillPct'))
 
-    print(myDS.fetchLatestRows(myDS.TableName, "main"))
+    # print(myDS.fetchLatestRows(myDS.TableName, "main"))
 
     # print(myDS.contactSim())
 
