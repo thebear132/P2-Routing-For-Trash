@@ -13,7 +13,7 @@ class DataStorage:
     Manipulates data and presents it to 'Route Planner' or 'GUI'
     """
 
-    def __init__(self, seed: any, molok_Ids = [], molok_positions = [], ADDR = ('127.0.0.1', 9999)) -> None:
+    def __init__(self, seed: any, num_moloks: int, center_coordinates = (57.01466, 9.987159), scale = 0.01 , ADDR = ('127.0.0.1', 9999)) -> None:
         """
         There are two different ways to initialize DataStorages comms
         1. with ADDR = '(IP, PORT)' -> creates server socket for communication with simulation
@@ -25,10 +25,6 @@ class DataStorage:
         2. with TABLE_NAME as "XYZ" (actual name) -> opens TABLE in DB with TABLE_NAME
         """
 
-        if len(molok_Ids) != len(molok_positions):
-            print(f"length of molokIds ({len(molok_Ids)}) is NOT equal to length of molok_positions ({len(molok_positions)}). They must be equal")
-            exit()
-
         # --- config vars ---
         self.DB_NAME = "Server\MolokData.db" # fix stien senere
         self.mainCon = lite.connect(self.DB_NAME) # creates connection to DB from main thread
@@ -36,11 +32,11 @@ class DataStorage:
 
         self.seed = seed
         self.rng = np.random.default_rng(seed=seed) # creates a np.random generator-object with specified seed. Use self.rng for randomness
-        self.molokIds = molok_Ids
-        self.molokPos = molok_positions
-        self.numMoloks = len(self.molokIds)
+        self.num_moloks = num_moloks
+        self.center_coords = center_coordinates
+        self.scale = scale
 
-        self.TableName = f"seed{self.seed}_NumM{self.numMoloks}"
+        self.TableName = f"seed{self.seed}_NumM{self.num_moloks}"
 
         # create new table if TableName not in DBTables
         if not self.TableName in self.getTableNames():
@@ -75,6 +71,7 @@ class DataStorage:
     def createTable(self, tableName):
         """creates new table in DB with tableName"""
         self.mainCur.execute(f"CREATE TABLE {tableName}(ID INTEGER PRIMARY KEY, molokID INTEGER, molokPos TUPLE, fillPct REAL, timestamp REAL)")
+        self.generate_init_data(tableName)
         return True
 
     def showTableByName(self, TableName):
@@ -120,16 +117,30 @@ class DataStorage:
         self.mainCur.execute(f"DROP TABLE IF EXISTS '{tableName}'")
         return f"You just deleted table {tableName} if it even existed"
 
-    def generate_init_data(self):
+    def generate_init_data(self, tableName):
         """Internal method. Called when creating table in order to fill it with initial data for each molok. Just a single datapoint for each"""
 
-        # sim fillPcts - use random (not normDist)
+        # sim mollok id (the molok id's will be passed when calling this function in __main__ and if the table is empty)
 
-        # sim molok pos
 
-        # insert (molokID, molokPos, fillPcts, timestamp) into DB
+        # sim molok pos 
+        norm_dist_lat = self.rng.normal(self.center_coords[0], self.scale/2, size = self.num_moloks)
+        norm_dist_long = self.rng.normal(self.center_coords[1], self.scale, size = self.num_moloks)
+        molok_coords = np.array(list(zip(norm_dist_lat, norm_dist_long)))
+        print("molok coords", molok_coords)
+       # sim fillPcts - use random (not normDist)
+    
+        init_fill_pcts = 50 * self.rng.random(self.num_moloks)
+        print("init", init_fill_pcts)
+        
+        # sim timestamp
+        timestamp = time.time()
+        
+        for i in range(self.num_moloks):
+            
+            # insert (molokID, molokPos, fillPcts, timestamp) into DB ; where i is molok id 
+            self.mainCur.execute(f"INSERT INTO {tableName}(molokid, molokPos, fillPct, timestamp) VALUES (?,?,?,?)", (i, str(molok_coords[i]), init_fill_pcts[i], timestamp))
 
-        return True
 
     def handleSigfox(self):
         """handles comms with sigfox. Only call if using measuring devices"""
@@ -221,9 +232,6 @@ class DataStorage:
                 except Exception as e:
                     pass
 
-                if molokPos == None:
-                    # print(f"molokpos empty. Inserting from self.molokPos[molokId]")
-                    molokPos = self.molokPos[molokId]
 
                 # writing sim msg to DB
                 self.simCur.execute(f"INSERT INTO {self.TableName} (molokId, molokPos, fillPct, timestamp) VALUES (?,?,?,?)", (molokId, str(molokPos), fillPct, timestamp))
@@ -270,17 +278,17 @@ if __name__ == "__main__":
             time.sleep(10)
 
 
-    molok_Ids = [0, 1, 2, 3, 4]
-    molok_pos = [(22, 10), (67, 24), (76, 54), (80, 100), (10, 10)]
+   
 
-    myDS = DataStorage(69, molok_Ids, molok_pos, ADDR=("192.168.137.104", 50050))
+    myDS = DataStorage(17, 10, ADDR=("192.168.137.104", 50050))
+    print(myDS.TableName)
+    print(myDS.showTableByName(myDS.TableName))
 
-
-    testOfSimThread(myDS)
+    # testOfSimThread(myDS)
 
 
     """Outcomment if you want to test"""
-    # print(f"showing all table names in DB: {myDS.getTableNames()}")
+    print(f"showing all table names in DB: {myDS.getTableNames()}")
 
     # print(f"{myDS.TableName} exists in DB: {myDS.TableName in myDS.getTableNames()}")
 
@@ -299,6 +307,8 @@ if __name__ == "__main__":
     # print(myDS.fetchLatestRows(myDS.TableName, "main"))
 
     # print(myDS.contactSim())
+
+    
 
     
 
