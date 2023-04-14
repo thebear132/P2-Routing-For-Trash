@@ -40,12 +40,13 @@ class DataStorage:
 
         # create new table if TableName not in DBTables
         if not self.TableName in self.getTableNames():
+            print(f"{self.TableName} not found in table names. Creating it now")
             self.createTable(self.TableName)
 
         # --- socket vars ---
         if type(ADDR) == tuple: # checks that user wants to create socket for UDP comms with simulation
             self.simADDR = ADDR
-            self.BUFFER_SIZE = 1024
+            self.BUFFER_SIZE = 1024 * 8
             self.END_MSG = "end"
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) # IPv4, UDP
 
@@ -122,7 +123,6 @@ class DataStorage:
 
         # sim mollok id (the molok id's will be passed when calling this function in __main__ and if the table is empty)
 
-
         # sim molok pos 
         norm_dist_lat = self.rng.normal(self.center_coords[0], self.scale/2, size = self.num_moloks)
         norm_dist_long = self.rng.normal(self.center_coords[1], self.scale, size = self.num_moloks)
@@ -139,8 +139,10 @@ class DataStorage:
         for i in range(self.num_moloks):
             
             # insert (molokID, molokPos, fillPcts, timestamp) into DB ; where i is molok id 
-            self.mainCur.execute(f"INSERT INTO {tableName}(molokid, molokPos, fillPct, timestamp) VALUES (?,?,?,?)", (i, str(molok_coords[i]), init_fill_pcts[i], timestamp))
+            self.mainCur.execute(f"INSERT INTO {tableName}(molokID, molokPos, fillPct, timestamp) VALUES (?,?,?,?)", (i, str(molok_coords[i]), init_fill_pcts[i], timestamp))
+        self.mainCon.commit()
 
+        return True
 
     def handleSigfox(self):
         """handles comms with sigfox. Only call if using measuring devices"""
@@ -172,6 +174,8 @@ class DataStorage:
         initData = [self.seed, lastFillpctList, sendsPrDay, latest_timestamps]
         print(f"First message of protocol: {initData}")
         initDataPickle = pickle.dumps(initData)
+
+        print(initDataPickle)
 
         # sending message to sim with socket.send. Lookup use of socket.connect and socket.send if in doubt
         self.socket.send(initDataPickle) # using socket.recv() from now on will return messages from simADDR.
@@ -207,20 +211,14 @@ class DataStorage:
             while True: # loop until self.END_MSG is received or socket times out
 
                 msg = self.socket.recv(self.BUFFER_SIZE) # socket.recvfrom() also returns senders ADDR.
-                # msg = msg.decode() # part1
-                msg = pickle.loads(msg) #part2
+                msg = pickle.loads(msg)
 
                 if msg == self.END_MSG: # when simulation is done
                     print(f"'end' has been sent by simulation. Breaking out of loop and ending thread")
                     break
 
-                # msg = msg.split() # part1
-                print(f"recieved msg: {msg}") #part2
+                print(f"recieved msg: {msg}")
 
-                # splitting msg
-                # molokId = int(msg[0].strip(")(, ")) # removes chars and changes to int - part1
-                # fillPct = float(msg[1].strip(")(, ")) # part1
-                # timestamp = float(msg[2].strip(")(, ")) #part1
                 molokId = int(msg[0]) # part2
                 fillPct = float(msg[1]) # part2
                 timestamp = float(msg[2]) # part2
@@ -269,26 +267,27 @@ class DataStorage:
 
 if __name__ == "__main__":
     
-    def testOfSimThread(DS: DataStorage, sendFreq = 3):
+    def testOfSimThread(DS: DataStorage, sendFreq = 1):
         """Run this func to test DS. Must be run with simulation
         Check that all communication occurs correctly and remember that the first sent msg is a pickle."""
 
         while True:
             print(DS.startSim(sendFreq=sendFreq))
             time.sleep(10)
-
-
+            print(myDS.showTableByName(myDS.TableName))
+            time.sleep(10)
    
 
-    myDS = DataStorage(17, 10, ADDR=("192.168.137.104", 50050))
-    print(myDS.TableName)
-    print(myDS.showTableByName(myDS.TableName))
+    myDS = DataStorage(20, 10, ADDR=("192.168.137.104", 12345))
+   
 
-    # testOfSimThread(myDS)
+    # print(myDS.showTableByName(myDS.TableName))
+
+    testOfSimThread(myDS)
 
 
     """Outcomment if you want to test"""
-    print(f"showing all table names in DB: {myDS.getTableNames()}")
+    # print(f"showing all table names in DB: {myDS.getTableNames()}")
 
     # print(f"{myDS.TableName} exists in DB: {myDS.TableName in myDS.getTableNames()}")
 
@@ -306,9 +305,5 @@ if __name__ == "__main__":
 
     # print(myDS.fetchLatestRows(myDS.TableName, "main"))
 
-    # print(myDS.contactSim())
-
-    
-
-    
+    # print(myDS.contactSim())   
 
