@@ -5,7 +5,9 @@ import time
 import threading
 import pickle
 from scipy import stats
-import matplotlib.pyplot as plt
+import hashlib
+import requests
+import json
 
 
 class DataStorage:
@@ -38,17 +40,13 @@ class DataStorage:
         self.center_coords = center_coordinates
         self.scale = scale
 
-        self.table_name = f"seed{self.seed}_NumM{self.num_moloks}"
-
-        # create new table if TableName not in DBTables
-        if not self.table_name in self.getTableNames():
-            print(f"{self.table_name} not found in table names. Creating it now")
-            self.createTable(self.table_name)
-
         # --- socket vars ---
         if type(ADDR) == tuple: # checks that user wants to create socket for UDP comms with simulation
+            
+            self.table_name = f"sim_seed{self.seed}_NumM{self.num_moloks}"
+
             self.sim_ADDR = ADDR
-            self.BUFFER_SIZE = 1024 * 8
+            self.BUFFER_SIZE = 1024
             self.END_MSG = "end"
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) # IPv4, UDP
 
@@ -60,21 +58,27 @@ class DataStorage:
             print('Provided ADDR indicates simulation is to be run. UDP client ready...')
         
         # --- sigfox vars ---
-        else: # if not simulation, then sigfox comms
-            """
-            Sigfox: når vi ved hvordan det virker
-            """
-            pass
+        elif ADDR == "sigfox":
+            self.table_name = f"sigfox_seed{self.seed}_NumM{self.num_moloks}"
+            print("Call 'get_sigfox_data()' to get sigfox data. The ID's are 0 or 1")
+
+
+        # create new table if TableName not in DBTables
+        if not self.table_name in self.getTableNames():
+            print(f"{self.table_name} not found in table names. Creating it now")
+            self.createTable(self.table_name)
+
 
     def getTableNames(self):
         """returns table names from DB"""
         self.main_cur.execute("SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
         return [i[0] for i in list(self.main_cur)]
 
-    def createTable(self, tableName):
+    def createTable(self, table_name):
         """creates new table in DB with tableName"""
-        self.main_cur.execute(f"CREATE TABLE {tableName}(ID INTEGER PRIMARY KEY, molokID INTEGER, molokPos TUPLE, fillPct REAL, timestamp REAL)")
-        self.generate_init_data(tableName)
+        self.main_cur.execute(f"CREATE TABLE {table_name}(ID INTEGER PRIMARY KEY, molokID INTEGER, molokPos TUPLE, fillPct REAL, timestamp REAL)")
+        if table_name[:3] == "sim": # only auto generate data if simulations are to be run
+            self.generate_init_data(table_name)
         return True
 
     def showTableByName(self, TableName):
@@ -146,37 +150,114 @@ class DataStorage:
 
         return True
 
-    def find_growthrates(self):
-        """get all growthrates for all moloks"""
+    def split_fillpcts_to_sections(self, fillpcts_array, timestamp_array):
+        """split filpcts and their timestamps into sections to account for emptying moloks"""
 
-        xy_dict = {}
+        sections_dict = {}
+        section = 0
+        first_index = 0
+
+        for cur_index in range(1, len(fillpcts_array)):
+            
+            # putting fillpcts from 0-100 into sections_dict by a first and current index
+            if fillpcts_array[cur_index] < fillpcts_array[cur_index - 1] * 0.9: # mult by 0.9 for if measuring device is inacurate
+                timestamp_section = timestamp_array[first_index:cur_index]
+                fillpcts_section = fillpcts_array[first_index:cur_index]
+                sections_dict[section] = np.vstack((timestamp_section, fillpcts_section))
+                
+                section += 1
+                first_index = cur_index
+            
+            # putting last section into dict
+            elif cur_index == len(fillpcts_array) - 1:
+                timestamp_section = timestamp_array[first_index:]
+                fillpcts_section = fillpcts_array[first_index:]
+                sections_dict[section] = np.vstack((timestamp_section, fillpcts_section))
+                
+        return sections_dict
+
+    def lin_regg_sections(self):
+        """find all sections for each molok and do linear reggresion on each section. A section is between each emptying"""
+
+        growthrates_dict = {}
 
         for molok_id in range(self.num_moloks):
             molok_data = self.fetch_data_by_molok_ID(self.table_name, molok_id)
             
-            xy_dict[molok_id] = np.zeros((2, len(molok_data)))
-            # print(molok_data)
+            first_timestamp = molok_data[0][4] # epoch time
+
+            x_array = np.zeros(len(molok_data))
+            y_array = np.zeros(len(molok_data))
+
             for row_index in range(len(molok_data)):
-                fill_pct = molok_data[row_index][3] # y-axis
                 timestamp = molok_data[row_index][4] # x-axis for lin. reg. model.
-                
+                fill_pct = molok_data[row_index][3] # y-axis
+                                
                 # subtracting by first timestamp to make graphing since time = 0 on x-axis
-                timestamp = float(timestamp) - float(molok_data[0][4])
+                timestamp = float(timestamp) - float(first_timestamp)
 
-                xy_dict[molok_id][0][row_index] = timestamp # putting timestamps in the first array of molok_id
-                xy_dict[molok_id][1][row_index] = fill_pct # putting fill_pct in the second array of molok_id
+                x_array[row_index] = timestamp # putting timestamps in the first array of molok_id
+                y_array[row_index] = fill_pct # putting fill_pct in the second array of molok_id
 
-            x = xy_dict[molok_id][0] / 60 # making epoch time in minutes
-            y = xy_dict[molok_id][1]
-            # reg on form y = ax + b
-            a, b, r, p, std_err = stats.linregress(x, y)
+            molok_sections = self.split_fillpcts_to_sections(timestamp_array=x_array, fillpcts_array=y_array)
 
-            print(f"Molok {molok_id} has a={a} and b={b}")
+            # lin req her
+            sections = len(molok_sections)
+            sections_list = []
 
-        print(xy_dict)
+            for section in range(sections):
 
-    def handleSigfox(self):
-        """handles comms with sigfox. Only call if using measuring devices"""
+                x = molok_sections[section][0] / 60 # array of timestamps. Making delta time in minutes
+                y = molok_sections[section][1] # array of fillpcts
+                # reg on form y = ax + b
+                a, b, r, p, std_err = stats.linregress(x, y)
+
+                # first and last timestamp of each section
+                t0 = x[0] + float(first_timestamp)/60 # adding first timestamp as it was subtracted before
+                t1 = x[-1] + float(first_timestamp)/60
+
+                data = (a, b, t0, t1) # a = pcts/minute, b = pcts, t0 = minutes, t1 = minutes
+                sections_list.append(data)
+
+            growthrates_dict[molok_id] = np.array(sections_list)
+
+        return growthrates_dict
+
+
+    def get_sigfox_data(self, id: int, epoch):
+        """Get msgs from sigfox network for device with id 0 or 1 that were recieved after 'epoch' epoch time
+        by the network"""
+
+        epoch = str((int(epoch) + 1) * 1000) # Do not include specified 'epoch'. Only msgs after (AKA > epoch)
+        # * 1000 as sigfox needs time in ms
+
+        authentication = ("643d0041e0b8bb55976d44fe", "ca70a8def999c45aaf1a3fd5a56f2f58") #Credentials
+
+        if id == 0: sigID = "1D3711"
+        if id == 1: sigID = "1D3712"
+
+        url = f"https://api.sigfox.com/v2/devices/{sigID}/messages?limit={10}&since={epoch}"
+        
+        req_result = requests.get(url=url, auth=authentication)
+
+        api_JSON = json.loads(req_result.text)
+
+        # sort response
+        messages = []
+        for message in api_JSON["data"]:
+            time = str(message["time"])[:-3]
+            data = bytes.fromhex(message["data"]).decode()
+            
+            messages.append((sigID, time, data))
+        
+        return messages[::-1] # msgs originally LIFO. flipping list to be FIFO
+
+    def calc_fillpcts_from_MD(self, distance, molok_depth):
+        """Calculates the fillpct from a measuring device based on measured distance and molok depth"""
+        pass
+
+    def log_sigfox_to_DB(self, positions):
+        """Log information from MD's to DB"""
         pass
 
 
@@ -214,7 +295,7 @@ class DataStorage:
         print("Sent first message.")
     
         # hashing msg to compare to answer from sim. Sim hashes msg and sends it back to datastorage for validation.
-        hash_value = hash(str(initData)) # hash cannot handle a list!
+        hash_value = hashlib.md5(str(initData).encode()).hexdigest() # hash cannot handle a list!
         print(f"hash of first msg as a string: {hash_value}")
 
         # recieving hash from sim
@@ -223,7 +304,7 @@ class DataStorage:
         print(f"recieved hash request: {hash_request}")
 
         # confirming that sim got correct information by comparing hashes
-        if hash_value == hash_request or hash_request == "123": # ---- remove later
+        if hash_value == hash_request:
             print("proceed sent")
             self.socket.send("proceed".encode('utf-8'))
             # handshake done. writeToDB() handles the rest of the protocol.
@@ -309,13 +390,14 @@ if __name__ == "__main__":
             time.sleep(10)
    
 
-    myDS = DataStorage(20, 10, ADDR=("192.168.137.104", 12345))
+    myDS = DataStorage(20, 2, ADDR='sigfox')
+
+    print(myDS.get_sigfox_data(0, time.time()-100000))
    
+    print(myDS.showTableByName(myDS.table_name))
 
-    #print(myDS.showTableByName(myDS.table_name))
-
-
-    myDS.find_growthrates()
+    # regg_dict = myDS.lin_regg_sections()
+    # print(regg_dict)
 
     # testOfSimThread(myDS)
 
@@ -340,4 +422,3 @@ if __name__ == "__main__":
     # print(myDS.fetchLatestRows(myDS.TableName, "main"))
 
     # print(myDS.contactSim())   
-
