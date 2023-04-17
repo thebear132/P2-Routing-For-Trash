@@ -4,6 +4,8 @@ import numpy as np
 import time
 import threading
 import pickle
+from scipy import stats
+import matplotlib.pyplot as plt
 
 
 class DataStorage:
@@ -27,8 +29,8 @@ class DataStorage:
 
         # --- config vars ---
         self.DB_NAME = "Server\MolokData.db" # fix stien senere
-        self.mainCon = lite.connect(self.DB_NAME) # creates connection to DB from main thread
-        self.mainCur = self.mainCon.cursor() # creates cursor for main thread
+        self.main_con = lite.connect(self.DB_NAME) # creates connection to DB from main thread
+        self.main_cur = self.main_con.cursor() # creates cursor for main thread
 
         self.seed = seed
         self.rng = np.random.default_rng(seed=seed) # creates a np.random generator-object with specified seed. Use self.rng for randomness
@@ -36,24 +38,24 @@ class DataStorage:
         self.center_coords = center_coordinates
         self.scale = scale
 
-        self.TableName = f"seed{self.seed}_NumM{self.num_moloks}"
+        self.table_name = f"seed{self.seed}_NumM{self.num_moloks}"
 
         # create new table if TableName not in DBTables
-        if not self.TableName in self.getTableNames():
-            print(f"{self.TableName} not found in table names. Creating it now")
-            self.createTable(self.TableName)
+        if not self.table_name in self.getTableNames():
+            print(f"{self.table_name} not found in table names. Creating it now")
+            self.createTable(self.table_name)
 
         # --- socket vars ---
         if type(ADDR) == tuple: # checks that user wants to create socket for UDP comms with simulation
-            self.simADDR = ADDR
+            self.sim_ADDR = ADDR
             self.BUFFER_SIZE = 1024 * 8
             self.END_MSG = "end"
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) # IPv4, UDP
 
             # self.socket.connect(self.simADDR) # connecting to simulation address
-            self.socket.connect(self.simADDR)
+            self.socket.connect(self.sim_ADDR)
 
-            self.simThread = None # creating simThread variable
+            self.sim_thread = None # creating simThread variable
             
             print('Provided ADDR indicates simulation is to be run. UDP client ready...')
         
@@ -66,44 +68,44 @@ class DataStorage:
 
     def getTableNames(self):
         """returns table names from DB"""
-        self.mainCur.execute("SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
-        return [i[0] for i in list(self.mainCur)]
+        self.main_cur.execute("SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
+        return [i[0] for i in list(self.main_cur)]
 
     def createTable(self, tableName):
         """creates new table in DB with tableName"""
-        self.mainCur.execute(f"CREATE TABLE {tableName}(ID INTEGER PRIMARY KEY, molokID INTEGER, molokPos TUPLE, fillPct REAL, timestamp REAL)")
+        self.main_cur.execute(f"CREATE TABLE {tableName}(ID INTEGER PRIMARY KEY, molokID INTEGER, molokPos TUPLE, fillPct REAL, timestamp REAL)")
         self.generate_init_data(tableName)
         return True
 
     def showTableByName(self, TableName):
         """shows Table with TableName from DB"""
-        self.mainCur.execute(f"SELECT * FROM '{TableName}'")
+        self.main_cur.execute(f"SELECT * FROM '{TableName}'")
 
-        return np.array(list(self.mainCur))
+        return np.array(list(self.main_cur))
     
     def showColumnNamesByTableName(self, TableName):
         """Shows columns of specified table with TableName"""
-        self.mainCur.execute(f"PRAGMA table_info('{TableName}')")
+        self.main_cur.execute(f"PRAGMA table_info('{TableName}')")
 
-        return np.array(self.mainCur.fetchall())
+        return np.array(self.main_cur.fetchall())
 
-    def fetchDataByMolokId(self,TableName, Id):
+    def fetch_data_by_molok_ID(self,table_name, Id):
         """Returns all rows with specified Id"""
-        self.mainCur.execute(f"SELECT * FROM '{TableName}' WHERE molokID = '{Id}'")
+        self.main_cur.execute(f"SELECT * FROM '{table_name}' WHERE molokID = '{Id}'")
 
-        return np.array(self.mainCur.fetchall()) 
+        return np.array(self.main_cur.fetchall()) 
     
     def fetchColumn(self, TableName, ColumnName):
         """Returns a specified column as a Numpy array"""
-        self.mainCur.execute(f"SELECT {ColumnName} FROM '{TableName}'")
+        self.main_cur.execute(f"SELECT {ColumnName} FROM '{TableName}'")
 
-        return np.array(self.mainCur.fetchall())
+        return np.array(self.main_cur.fetchall())
     
     def fetchLatestRows(self, TableName, cursor: str):
         """returns array containing a row for each molokId with its latest ID"""
         if cursor == "main":
-            self.mainCur.execute(f"SELECT MAX(ID), molokID, molokPos, fillPct, timestamp FROM '{TableName}' GROUP BY molokID")
-            return np.array(self.mainCur.fetchall())
+            self.main_cur.execute(f"SELECT MAX(ID), molokID, molokPos, fillPct, timestamp FROM '{TableName}' GROUP BY molokID")
+            return np.array(self.main_cur.fetchall())
         elif cursor == "sim":
             self.simCur.execute(f"SELECT MAX(ID), molokID, molokPos, fillPct, timestamp FROM '{TableName}' GROUP BY molokID")
             return np.array(self.simCur.fetchall())
@@ -115,7 +117,7 @@ class DataStorage:
         This method deletes a table by TableName FOREVER!
         """
         # check if tableName is in DB:
-        self.mainCur.execute(f"DROP TABLE IF EXISTS '{tableName}'")
+        self.main_cur.execute(f"DROP TABLE IF EXISTS '{tableName}'")
         return f"You just deleted table {tableName} if it even existed"
 
     def generate_init_data(self, tableName):
@@ -139,10 +141,39 @@ class DataStorage:
         for i in range(self.num_moloks):
             
             # insert (molokID, molokPos, fillPcts, timestamp) into DB ; where i is molok id 
-            self.mainCur.execute(f"INSERT INTO {tableName}(molokID, molokPos, fillPct, timestamp) VALUES (?,?,?,?)", (i, str(molok_coords[i]), init_fill_pcts[i], timestamp))
-        self.mainCon.commit()
+            self.main_cur.execute(f"INSERT INTO {tableName}(molokID, molokPos, fillPct, timestamp) VALUES (?,?,?,?)", (i, str(molok_coords[i]), init_fill_pcts[i], timestamp))
+        self.main_con.commit()
 
         return True
+
+    def find_growthrates(self):
+        """get all growthrates for all moloks"""
+
+        xy_dict = {}
+
+        for molok_id in range(self.num_moloks):
+            molok_data = self.fetch_data_by_molok_ID(self.table_name, molok_id)
+            
+            xy_dict[molok_id] = np.zeros((2, len(molok_data)))
+            # print(molok_data)
+            for row_index in range(len(molok_data)):
+                fill_pct = molok_data[row_index][3] # y-axis
+                timestamp = molok_data[row_index][4] # x-axis for lin. reg. model.
+                
+                # subtracting by first timestamp to make graphing since time = 0 on x-axis
+                timestamp = float(timestamp) - float(molok_data[0][4])
+
+                xy_dict[molok_id][0][row_index] = timestamp # putting timestamps in the first array of molok_id
+                xy_dict[molok_id][1][row_index] = fill_pct # putting fill_pct in the second array of molok_id
+
+            x = xy_dict[molok_id][0] / 60 # making epoch time in minutes
+            y = xy_dict[molok_id][1]
+            # reg on form y = ax + b
+            a, b, r, p, std_err = stats.linregress(x, y)
+
+            print(f"Molok {molok_id} has a={a} and b={b}")
+
+        print(xy_dict)
 
     def handleSigfox(self):
         """handles comms with sigfox. Only call if using measuring devices"""
@@ -162,7 +193,7 @@ class DataStorage:
         # creates list of fillPcts to send to sim and creates list of latest timestamps by molokID
         lastFillpctList = []
         latest_timestamps = []
-        lastRowList = self.fetchLatestRows(self.TableName, "sim")
+        lastRowList = self.fetchLatestRows(self.table_name, "sim")
         for i in lastRowList:
             fillpct = float(i[3])
             timestamp = float(i[4])
@@ -205,7 +236,7 @@ class DataStorage:
         """
         Internal method. Do not call manually! \n 
         logs data from sim into DB. This is the second part of our protocol called C22-SIM Protocol"""
-        self.socket.settimeout(15) # socket now has n second to receive information before raising an error and ending the thread as intended
+        self.socket.settimeout(10) # socket now has n second to receive information before raising an error and ending the thread as intended
 
         try:
             while True: # loop until self.END_MSG is received or socket times out
@@ -224,7 +255,7 @@ class DataStorage:
                 timestamp = float(msg[2]) # part2
                 
                 # finding molok pos with molok ID
-                self.simCur.execute(f"SELECT molokPos FROM '{self.TableName}' WHERE molokID = '{molokId}'")
+                self.simCur.execute(f"SELECT molokPos FROM '{self.table_name}' WHERE molokID = '{molokId}'")
                 molokPos = self.simCur.fetchone() # Getting molokPos. Returns None if empty
                 try: molokPos = molokPos[0] # molokPos is either None or ((),) , so this tries to get the inner tuple
                 except Exception as e:
@@ -232,7 +263,7 @@ class DataStorage:
 
 
                 # writing sim msg to DB
-                self.simCur.execute(f"INSERT INTO {self.TableName} (molokId, molokPos, fillPct, timestamp) VALUES (?,?,?,?)", (molokId, str(molokPos), fillPct, timestamp))
+                self.simCur.execute(f"INSERT INTO {self.table_name} (molokId, molokPos, fillPct, timestamp) VALUES (?,?,?,?)", (molokId, str(molokPos), fillPct, timestamp))
                 self.simCon.commit()
 
         except Exception as e:
@@ -255,10 +286,10 @@ class DataStorage:
 
         # creating and starting sim thread if simThread does not yet exist
         activeThreads = threading.enumerate()
-        if not self.simThread in activeThreads:
+        if not self.sim_thread in activeThreads:
             print("starting thread as there was no self.simThread")
-            self.simThread = threading.Thread(target=self.handshake, args=[sendFreq], name='writeToDBThread')
-            self.simThread.start()
+            self.sim_thread = threading.Thread(target=self.handshake, args=[sendFreq], name='writeToDBThread')
+            self.sim_thread.start()
 
             return True # meaning thread started succesfully
 
@@ -274,16 +305,19 @@ if __name__ == "__main__":
         while True:
             print(DS.startSim(sendFreq=sendFreq))
             time.sleep(10)
-            print(myDS.showTableByName(myDS.TableName))
+            print(myDS.showTableByName(myDS.table_name))
             time.sleep(10)
    
 
     myDS = DataStorage(20, 10, ADDR=("192.168.137.104", 12345))
    
 
-    # print(myDS.showTableByName(myDS.TableName))
+    #print(myDS.showTableByName(myDS.table_name))
 
-    testOfSimThread(myDS)
+
+    myDS.find_growthrates()
+
+    # testOfSimThread(myDS)
 
 
     """Outcomment if you want to test"""
