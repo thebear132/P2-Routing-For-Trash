@@ -64,7 +64,7 @@ class DataStorage:
             print(f"""Generated positions for moloks/measuring devices: {self.md_positions}. If you wish to override these
             positions, change the 'md_positions' attribute manually""")
 
-            print("Call 'get_sigfox_data()' to get sigfox data. The ID's are 0 or 1")
+            print("Call 'get_sigfox_data()' to get sigfox data from the implemented measuring device")
 
         # create new table if TableName not in DBTables
         if not self.table_name in self.get_tablenames():
@@ -153,7 +153,7 @@ class DataStorage:
 
         return True
 
-    def split_fillpcts_to_sections(self, fillpcts_array, timestamp_array):
+    def split_fillpcts_to_sections(self, fillpcts_array, timestamp_array, msg_ID_array):
         """split filpcts and their timestamps into sections to account for emptying moloks"""
 
         sections_dict = {}
@@ -163,10 +163,11 @@ class DataStorage:
         for cur_index in range(1, len(fillpcts_array)):
             
             # putting fillpcts from 0-100 into sections_dict by a first and current index
-            if fillpcts_array[cur_index] < fillpcts_array[cur_index - 1] * 0.95: # mult by 0.9 for if measuring device is inacurate
+            if fillpcts_array[cur_index] == 0: # split into sections when molok has been emptied
                 timestamp_section = timestamp_array[first_index:cur_index]
                 fillpcts_section = fillpcts_array[first_index:cur_index]
-                sections_dict[section] = np.vstack((timestamp_section, fillpcts_section))
+                msg_ID_section = msg_ID_array[first_index:cur_index]
+                sections_dict[section] = np.vstack((timestamp_section, fillpcts_section, msg_ID_section))
                 
                 section += 1
                 first_index = cur_index
@@ -175,12 +176,16 @@ class DataStorage:
             elif cur_index == len(fillpcts_array) - 1:
                 timestamp_section = timestamp_array[first_index:]
                 fillpcts_section = fillpcts_array[first_index:]
-                sections_dict[section] = np.vstack((timestamp_section, fillpcts_section))
+                msg_ID_section = msg_ID_array[first_index:]
+                sections_dict[section] = np.vstack((timestamp_section, fillpcts_section, msg_ID_section))
                 
         return sections_dict
 
     def lin_reg_sections(self):
-        """find all sections for each molok and do linear reggresion on each section. A section is between each emptying"""
+        """
+        find all sections for each molok and do linear reggresion on each section. A section is between each emptying
+        returns a dictionary that contains info on form (a = pcts/minute, b = pcts, t0 = minutes, t1 = minutes, msg_IDs)
+        """
 
         growthrates_dict = {}
 
@@ -192,17 +197,22 @@ class DataStorage:
             x_array = np.zeros(len(molok_data))
             y_array = np.zeros(len(molok_data))
 
+            msg_ID_array = np.zeros(len(molok_data)) # adding msg_IDs to know which rows in DB are used
+
+
             for row_index in range(len(molok_data)):
                 timestamp = molok_data[row_index][4] # x-axis for lin. reg. model.
                 fill_pct = molok_data[row_index][3] # y-axis
+                msg_ID = molok_data[row_index][0] # msg ID
                                 
                 # subtracting by first timestamp to make graphing since time = 0 on x-axis
                 timestamp = float(timestamp) - float(first_timestamp)
 
                 x_array[row_index] = timestamp # putting timestamps in the first array of molok_id
                 y_array[row_index] = fill_pct # putting fill_pct in the second array of molok_id
+                msg_ID_array[row_index] = msg_ID
 
-            molok_sections = self.split_fillpcts_to_sections(timestamp_array=x_array, fillpcts_array=y_array)
+            molok_sections = self.split_fillpcts_to_sections(timestamp_array=x_array, fillpcts_array=y_array, msg_ID_array=msg_ID_array)
 
             # lin req her
             sections = len(molok_sections)
@@ -215,45 +225,26 @@ class DataStorage:
                 # reg on form y = ax + b
                 a, b, r, p, std_err = stats.linregress(x, y)
 
+                msg_IDs = molok_sections[section][2] # looking up relevant IDs
+
                 # first and last timestamp of each section
                 t0 = x[0] + float(first_timestamp)/60 # adding first timestamp as it was subtracted before
                 t1 = x[-1] + float(first_timestamp)/60
 
-                data = (a, b, t0, t1) # a = pcts/minute, b = pcts, t0 = minutes, t1 = minutes
+                data = (a, b, t0, t1, msg_IDs) # a = pcts/minute, b = pcts, t0 = minutes, t1 = minutes
                 sections_list.append(data)
 
-            growthrates_dict[molok_id] = np.array(sections_list)
+            growthrates_dict[molok_id] = sections_list
 
         return growthrates_dict
 
+    def avg_growth_over_period(self, period_start: float = (time.time() - 86400 * 7), period_end: float = time.time()):
+        """
+        calculate avg growth in fill pcts over time. This will include every viable section registered by the 
+        'split_fillpcts_to_sections' method.
+        """
 
-    def get_sigfox_data(self, MD_id: int, epoch):
-        """Get msgs from sigfox network for device with id 0 or 1 that were recieved after 'epoch' epoch time
-        by the network"""
-
-        epoch = str((int(epoch) + 1) * 1000) # Do not include specified 'epoch'. Only msgs after (AKA > epoch)
-        # * 1000 as sigfox needs time in ms
-
-        authentication = ("643d0041e0b8bb55976d44fe", "ca70a8def999c45aaf1a3fd5a56f2f58") #Credentials
-
-        if MD_id == 0: sigID = "1D3711"
-        if MD_id == 1: sigID = "1D3712"
-
-        url = f"https://api.sigfox.com/v2/devices/{sigID}/messages?limit={10}&since={epoch}"
-        
-        req_result = requests.get(url=url, auth=authentication)
-
-        api_JSON = json.loads(req_result.text)
-
-        # sort response
-        messages = []
-        for message in api_JSON["data"]:
-            time = str(message["time"])[:-3]
-            data = bytes.fromhex(message["data"]).decode()
-            
-            messages.append((sigID, time, data))
-        
-        return messages[::-1] # msgs originally LIFO. flipping list to be FIFO
+        pass
 
     def calc_fillpcts_from_MD(self, distance, molok_depth) -> float:
         """Calculates the fillpct from a measuring device based on measured distance and molok depth (both in cm)"""
@@ -273,10 +264,41 @@ class DataStorage:
 
         return md_positions
 
-    def log_sigfox_to_DB(self, meas_device_id: int, epoch: int = 1681720002):
-        """Log information from MD's to DB"""
 
-        md_msgs = self.get_sigfox_data(MD_id=meas_device_id, epoch=epoch)
+    def get_sigfox_data(self, epoch):
+        """Get msgs from sigfox network for device with id 0 or 1 that were recieved after 'epoch' epoch time
+        by the network"""
+
+        epoch = str((int(epoch) + 1) * 1000) # Do not include specified 'epoch'. Only msgs after (AKA > epoch)
+        # * 1000 as sigfox needs time in ms
+
+        authentication = ("643d0041e0b8bb55976d44fe", "ca70a8def999c45aaf1a3fd5a56f2f58") #Credentials
+
+        sigID = "1D3711"
+
+        url = f"https://api.sigfox.com/v2/devices/{sigID}/messages?limit={10}&since={epoch}"
+        
+        req_result = requests.get(url=url, auth=authentication)
+
+        api_JSON = json.loads(req_result.text)
+
+        # sort response
+        messages = []
+        for message in api_JSON["data"]:
+            time = str(message["time"])[:-3]
+            data = bytes.fromhex(message["data"]).decode()
+            
+            messages.append((sigID, time, data))
+        
+        return messages[::-1] # msgs originally LIFO. flipping list to be FIFO
+
+    def log_sigfox_to_DB(self, epoch: int = 1681720002):
+        """Log information from MD's to DB"""
+        
+        # if multiple MDs were implemented, this var could be dynamic instead of hardcoded, but we only use the one
+        meas_device_id = 0
+
+        md_msgs = self.get_sigfox_data(epoch=epoch)
 
         device_pos = self.md_positions[meas_device_id]
 
@@ -424,12 +446,12 @@ if __name__ == "__main__":
 
     myDS = DataStorage(20, 1, ADDR='sigfox')
 
-    print(myDS.log_sigfox_to_DB(0))
+    # print(myDS.log_sigfox_to_DB())
 
     print(myDS.show_table_by_tablename(myDS.table_name))
 
-    regg_dict = myDS.lin_reg_sections()
-    print(regg_dict)
+    reg_dict = myDS.lin_reg_sections()
+    print(reg_dict)
 
     # testOfSimThread(myDS)
 
