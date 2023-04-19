@@ -48,10 +48,10 @@ class DataStorage:
             self.sim_ADDR = ADDR
             self.BUFFER_SIZE = 1024
             self.END_MSG = "end"
-            self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) # IPv4, UDP
+            self.UDP_recv_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) # IPv4, UDP
 
             # self.socket.connect(self.simADDR) # connecting to simulation address
-            self.socket.connect(self.sim_ADDR)
+            self.UDP_recv_socket.bind(("", self.sim_ADDR[1]))
 
             self.sim_thread = None # creating simThread variable
             
@@ -184,7 +184,7 @@ class DataStorage:
     def lin_reg_sections(self):
         """
         find all sections for each molok and do linear reggresion on each section. A section is between each emptying
-        returns a dictionary that contains info on form (a = pcts/minute, b = pcts, t0 = minutes, t1 = minutes, msg_IDs)
+        returns a dictionary that contains info on form (a = pcts/second, b = pcts, t0 = seconds, t1 = seconds, msg_IDs)
         """
 
         growthrates_dict = {}
@@ -220,7 +220,7 @@ class DataStorage:
 
             for section in range(sections):
 
-                x = molok_sections[section][0] / 60 # array of timestamps. Making delta time in minutes
+                x = molok_sections[section][0] # array of timestamps
                 y = molok_sections[section][1] # array of fillpcts
                 # reg on form y = ax + b
                 a, b, r, p, std_err = stats.linregress(x, y)
@@ -228,23 +228,46 @@ class DataStorage:
                 msg_IDs = molok_sections[section][2] # looking up relevant IDs
 
                 # first and last timestamp of each section
-                t0 = x[0] + float(first_timestamp)/60 # adding first timestamp as it was subtracted before
-                t1 = x[-1] + float(first_timestamp)/60
+                t0 = x[0] + float(first_timestamp) # adding first timestamp as it was subtracted before
+                t1 = x[-1] + float(first_timestamp)
 
-                data = (a, b, t0, t1, msg_IDs) # a = pcts/minute, b = pcts, t0 = minutes, t1 = minutes
+                data = (a, b, t0, t1, msg_IDs) # a = pcts/second, b = pcts, t0 = seconds, t1 = seconds
                 sections_list.append(data)
 
             growthrates_dict[molok_id] = sections_list
 
         return growthrates_dict
 
-    def avg_growth_over_period(self, period_start: float = (time.time() - 86400 * 7), period_end: float = time.time()):
+    def avg_growth_over_period(self, regression_dictionary: dict, period_start: float = (time.time() - 86400 * 7), period_end: float = time.time()):
         """
-        calculate avg growth in fill pcts over time. This will include every viable section registered by the 
-        'split_fillpcts_to_sections' method.
+        calculate avg growth in fill pcts over time in the passed 'regression_dictionary'.
         """
+        avg_growthrates = np.zeros(len(regression_dictionary))
 
-        pass
+        for key in regression_dictionary:
+            molok_periods = regression_dictionary[key]
+
+            num_valid_periods = 0
+            sum_period_growthrates = 0
+
+            for period in molok_periods:
+                
+                section_start = period[2]
+                section_end = period[3]
+
+                if section_start < period_end and period_start < section_end:
+                    
+                    num_valid_periods += 1 # increase num of valid periods
+                    sum_period_growthrates += period[0] # increase sum of a's by valid periods a
+
+            if num_valid_periods == 0:
+                return f"No valid sections found for period {period_start} to {period_end}"
+            
+            # finding avg. growthrate of sections that are part of specified period
+            molok_avg_growthrate = sum_period_growthrates / num_valid_periods
+            avg_growthrates[key] = molok_avg_growthrate
+
+        return avg_growthrates
 
     def calc_fillpcts_from_MD(self, distance, molok_depth) -> float:
         """Calculates the fillpct from a measuring device based on measured distance and molok depth (both in cm)"""
@@ -325,7 +348,16 @@ class DataStorage:
         # --- DB vars ---
         self.sim_con = lite.connect(self.DB_NAME) # creates connection to DB from sim thread
         self.sim_cur = self.sim_con.cursor() # creates cursor for sim thread
-        
+
+        # --- socket var ---
+        try:
+            self.TCP_handshake_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # IPv4, TCP
+            self.TCP_handshake_socket.connect(self.sim_ADDR)
+        except TimeoutError as e:
+            print(f"TimeoutError: {e}")
+            print("Closing sim thread")
+            return False
+
         # creates list of fillPcts to send to sim and creates list of latest timestamps by molokID
         last_fillpct_list = []
         latest_timestamps = []
@@ -342,53 +374,44 @@ class DataStorage:
         print(f"First message of protocol: {init_data}")
         init_data_pickle = pickle.dumps(init_data)
 
-        print(init_data_pickle)
-
         # sending message to sim with socket.send. Lookup use of socket.connect and socket.send if in doubt
-        self.socket.send(init_data_pickle) # using socket.recv() from now on will return messages from simADDR.
-        # using socket.recv() from now on will return messages from simADDR.
-        print("Sent first message.")
-    
-        # hashing msg to compare to answer from sim. Sim hashes msg and sends it back to datastorage for validation.
-        hash_value = hashlib.md5(str(init_data).encode()).hexdigest() # hash cannot handle a list!
-        print(f"hash of first msg as a string: {hash_value}")
+        bytes_sent = self.TCP_handshake_socket.send(init_data_pickle)
+        print(f"sent {bytes_sent} bytes to sim in init data")
 
-        # recieving hash from sim
-        hash_request = self.socket.recv(self.BUFFER_SIZE)
-        hash_request = hash_request.decode()
-        print(f"recieved hash request: {hash_request}")
+        time.sleep(1)
 
-        # confirming that sim got correct information by comparing hashes
-        if hash_value == hash_request:
-            print("proceed sent")
-            self.socket.send("proceed".encode('utf-8'))
-            # handshake done. writeToDB() handles the rest of the protocol.
-            self.simDBLogger()
-        else:
-            print("failed")
-            self.socket.send("failed".encode('utf-8'))
+        # telling sim to end handshake and start sending data back
+        self.TCP_handshake_socket.send(self.END_MSG.encode())
+
+        print("Sent init data pickle to simulation address.")
+
+        self.simDBLogger()
+
+        self.TCP_handshake_socket.close()
+
+        return True
     
     def simDBLogger(self):
         """
         Internal method. Do not call manually! \n 
         logs data from sim into DB. This is the second part of our protocol called C22-SIM Protocol"""
-        self.socket.settimeout(10) # socket now has n second to receive information before raising an error and ending the thread as intended
+        self.UDP_recv_socket.settimeout(20) # socket now has n second to receive information before raising an error and ending the thread as intended
 
         try:
             while True: # loop until self.END_MSG is received or socket times out
 
-                msg = self.socket.recv(self.BUFFER_SIZE) # socket.recvfrom() also returns senders ADDR.
+                msg = self.UDP_recv_socket.recv(self.BUFFER_SIZE) # socket.recvfrom() also returns senders ADDR.
                 msg = pickle.loads(msg)
 
                 if msg == self.END_MSG: # when simulation is done
                     print(f"'end' has been sent by simulation. Breaking out of loop and ending thread")
                     break
 
-                print(f"recieved msg: {msg}")
+                # print(f"recieved msg: {msg}")
 
-                molokId = int(msg[0]) # part2
-                fillPct = float(msg[1]) # part2
-                timestamp = float(msg[2]) # part2
+                molokId = int(msg[0])
+                fillPct = float(msg[1]) 
+                timestamp = float(msg[2]) 
                 
                 # finding molok pos with molok ID
                 self.sim_cur.execute(f"SELECT molokPos FROM '{self.table_name}' WHERE molokID = '{molokId}'")
@@ -397,7 +420,6 @@ class DataStorage:
                 except Exception as e:
                     pass
 
-
                 # writing sim msg to DB
                 self.sim_cur.execute(f"INSERT INTO {self.table_name} (molokId, molokPos, fillPct, timestamp) VALUES (?,?,?,?)", (molokId, str(molokPos), fillPct, timestamp))
                 self.sim_con.commit()
@@ -405,7 +427,7 @@ class DataStorage:
         except Exception as e:
             print(f"The following error occured in simDBLogger: {e}")
             print("The thread will now be terminated")
-            self.socket.settimeout(None) # now the socket will block forever, as by default. When thread runs again, timeout is set to n above
+            self.UDP_recv_socket.settimeout(None) # now the socket will block forever, as by default. When thread runs again, timeout is set to n above
  
     def startSim(self, send_freq: int = 3) -> bool:
         """Uses our protocol called C22-SIM Protocol to contact simulation and handle its responses in a thread. 
@@ -441,19 +463,21 @@ if __name__ == "__main__":
             print(DS.startSim(send_freq=sendFreq))
             time.sleep(10)
             print(myDS.show_table_by_tablename(myDS.table_name))
-            time.sleep(10)
    
 
-    myDS = DataStorage(20, 1, ADDR='sigfox')
+    myDS = DataStorage(20, 1000, ADDR=('192.168.137.104', 50050))
 
     # print(myDS.log_sigfox_to_DB())
 
     print(myDS.show_table_by_tablename(myDS.table_name))
 
-    reg_dict = myDS.lin_reg_sections()
-    print(reg_dict)
+    # reg_dict = myDS.lin_reg_sections()
+    # print(reg_dict)
 
-    # testOfSimThread(myDS)
+    # avg_a = myDS.avg_growth_over_period(reg_dict, period_start=time.time())
+    # print(avg_a)
+
+    testOfSimThread(myDS)
 
 
     """Outcomment if you want to test"""
