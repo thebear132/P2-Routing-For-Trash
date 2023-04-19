@@ -29,8 +29,14 @@ class routePlanner:
         # create routing model
         self.routing = pywrapcp.RoutingModel(self.manager)
 
+        # create and register a transit callback
+        self.transit_callback_index = self.routing.RegisterTransitCallback(self.time_callback)
+
+        # Define cost of each arc.
+        self.routing.SetArcCostEvaluatorOfAllVehicles(self.transit_callback_index)
+
         # add constraints and save their names in this var
-        self.constraints = self.addConstraints()
+        self.constraints = self.add_time_windows_constraint()
 
 
     def createManager(self):
@@ -71,9 +77,16 @@ class routePlanner:
         data['molokEmptyTime'] = molokArgs[1]
         data['molokFillPcts'] = molokArgs[2]
         data['molokCapacity'] = molokArgs[3]
-        data['molokDemand'] = [i/100 * molokArgs[3] for i in molokArgs[2]] # List of kg trash in each molok: pct * max capacity = current weight
+        molok_demands = [i/100 * molokArgs[3] for i in molokArgs[2]] # List of kg trash in each molok: pct * max capacity = current weight
+        data['demands'] = [0] # 0 is for depot demand
+        for demand in molok_demands:
+            data['demands'].append(demand)
+
         # calc time windows based on fillPct and lin. growthrate f(x)=ax+b from lin. reg.
-        data['molokTimeWindows'] = sf.molokTimeWindows(fillPcts=molokArgs[2], estGrowthrates=molokArgs[4])
+        data['timeWindows'] = [[0, int(data['depotClose'] - data['depotOpen'])]] # first index is depot TW
+        molok_TWs = sf.molokTimeWindows(fillPcts=molokArgs[2], estGrowthrates=molokArgs[4])
+        for tw in molok_TWs:
+            data['timeWindows'].append(tw)
 
         # --- truck vars ---
         data['truckRange'] = truckArgs[0]
@@ -84,11 +97,57 @@ class routePlanner:
         data['time_matrix'] = self.timeMatrix(data['depotPos'], data['molokPositions'], truckSpeed=50)
 
         return data
+    
+
+    def time_callback(self, from_index, to_index):
+        """Returns the travel time between the two nodes."""
+        # Convert from routing variable Index to time matrix NodeIndex.
+        from_node = self.manager.IndexToNode(from_index)
+        to_node = self.manager.IndexToNode(to_index)
+        return self.data['time_matrix'][from_node][to_node]
+
+    def add_time_windows_constraint(self) -> any:
+        """creates and adds the time windows (VRPTW) constraint to self.routing"""
+        time = 'Time' # name of dimension
+
+        workhours_in_minutes = self.data["truckWorkStop"] - self.data["truckWorkStart"]
+        # print(f"workhours in minutes: {workhours_in_minutes}")
+
+        self.routing.AddDimension(
+            self.transit_callback_index,
+            0,  # don't allow waiting time at moloks
+            workhours_in_minutes,  # maximum time per vehicle
+            True,  # Force start cumul to zero meaning trucks start driving immediately.
+            time) # dimension name assigned here
+        time_dimension = self.routing.GetDimensionOrDie(time)
+
+        # Add time window constraints for each location except depot.
+        for location_idx, time_window in enumerate(self.data['timeWindows']):
+            if location_idx == self.data['depotIndex']: # skips depot
+                continue
+            index = self.manager.NodeToIndex(location_idx)
+            time_dimension.CumulVar(index).SetRange(time_window[0], time_window[1])
+
+        # Instantiate route start and end times to produce feasible times.
+        for i in range(self.data['numTrucks']):
+            self.routing.AddVariableMinimizedByFinalizer(
+                time_dimension.CumulVar(self.routing.Start(i)))
+            self.routing.AddVariableMinimizedByFinalizer(
+                time_dimension.CumulVar(self.routing.End(i)))
+            
+        return None
+    
+    def demand_callback(self, from_index):
+        """Returns the demand of the node."""
+        # Convert from routing variable Index to demands NodeIndex.
+        from_node = self.manager.IndexToNode(from_index)
+        return self.data['demands'][from_node]
+    
+
+
 
     def addConstraints(self) -> any:
         """creates constraints based on inputs. The constraints are added to self.routing"""
-        
-        return None
 
     def showSolution(self) -> list:
         """Returns solution found by OR-Tools"""

@@ -127,7 +127,7 @@ def molokTimeWindows(fillPcts, estGrowthrates):
      # a = growthrate, b= fillPct, and x is minutes
     for i in range(len(fillPcts)):
         x = (100 - fillPcts[i])/estGrowthrates[i]
-        TWs[i] = [0, x]
+        TWs[i] = [0, int(x)]
 
     return TWs
 
