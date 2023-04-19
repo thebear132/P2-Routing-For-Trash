@@ -51,7 +51,8 @@ class DataStorage:
             self.UDP_recv_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) # IPv4, UDP
 
             # self.socket.connect(self.simADDR) # connecting to simulation address
-            self.UDP_recv_socket.bind(("", self.sim_ADDR[1]))
+            print(self.sim_ADDR[1])
+            # self.UDP_recv_socket.bind(("", self.sim_ADDR[1]))
 
             self.sim_thread = None # creating simThread variable
             
@@ -385,9 +386,9 @@ class DataStorage:
 
         print("Sent init data pickle to simulation address.")
 
-        self.simDBLogger()
-
         self.TCP_handshake_socket.close()
+
+        self.simDBLogger()
 
         return True
     
@@ -395,19 +396,21 @@ class DataStorage:
         """
         Internal method. Do not call manually! \n 
         logs data from sim into DB. This is the second part of our protocol called C22-SIM Protocol"""
-        self.UDP_recv_socket.settimeout(20) # socket now has n second to receive information before raising an error and ending the thread as intended
-
+        self.UDP_recv_socket.settimeout(10) # socket now has n second to receive information before raising an error and ending the thread as intended
+        self.UDP_recv_socket.bind(("", self.sim_ADDR[1]))
         try:
+            print("SIMDBLOGGER")
             while True: # loop until self.END_MSG is received or socket times out
-
+                
                 msg = self.UDP_recv_socket.recv(self.BUFFER_SIZE) # socket.recvfrom() also returns senders ADDR.
                 msg = pickle.loads(msg)
-
+                
+                
                 if msg == self.END_MSG: # when simulation is done
                     print(f"'end' has been sent by simulation. Breaking out of loop and ending thread")
                     break
-
-                # print(f"recieved msg: {msg}")
+                
+                print(f"recieved msg: {msg}")
 
                 molokId = int(msg[0])
                 fillPct = float(msg[1]) 
@@ -465,7 +468,7 @@ if __name__ == "__main__":
             print(myDS.show_table_by_tablename(myDS.table_name))
    
 
-    myDS = DataStorage(20, 1000, ADDR=('192.168.137.104', 50050))
+    myDS = DataStorage(20, 5, ADDR=('192.168.137.104', 50050))
 
     # print(myDS.log_sigfox_to_DB())
 
