@@ -47,12 +47,13 @@ class DataStorage:
 
             self.sim_ADDR = ADDR
             self.BUFFER_SIZE = 1024
-            self.END_MSG = "end"
+            self.END_MSG = "stop"
             self.UDP_recv_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) # IPv4, UDP
 
-            # self.socket.connect(self.simADDR) # connecting to simulation address
-            print(self.sim_ADDR[1])
-            # self.UDP_recv_socket.bind(("", self.sim_ADDR[1]))
+            # IPAddr=socket.gethostbyname(socket.gethostname())
+            # print(f"My IP is : {IPAddr}")
+            
+            self.UDP_recv_socket.connect(self.sim_ADDR)
 
             self.sim_thread = None # creating simThread variable
             
@@ -103,6 +104,7 @@ class DataStorage:
 
         return np.array(self.main_cur.fetchall()) 
     
+    # felt cute, might delete later
     def fetch_column(self, table_name, column_name):
         """Returns a specified column as a Numpy array"""
         self.main_cur.execute(f"SELECT {column_name} FROM '{table_name}'")
@@ -354,6 +356,7 @@ class DataStorage:
         try:
             self.TCP_handshake_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # IPv4, TCP
             self.TCP_handshake_socket.connect(self.sim_ADDR)
+
         except TimeoutError as e:
             print(f"TimeoutError: {e}")
             print("Closing sim thread")
@@ -372,21 +375,15 @@ class DataStorage:
         # creates message with nescessary data for sim. The list is pickled for easy use on sim-side.
         sends_pr_day = send_freq
         init_data = [self.seed, last_fillpct_list, sends_pr_day, latest_timestamps]
-        print(f"First message of protocol: {init_data}")
+        # print(f"First message of protocol: {init_data}")
         init_data_pickle = pickle.dumps(init_data)
 
         # sending message to sim with socket.send. Lookup use of socket.connect and socket.send if in doubt
-        bytes_sent = self.TCP_handshake_socket.send(init_data_pickle)
+        bytes_sent = self.TCP_handshake_socket.send(init_data_pickle + self.END_MSG.encode())
         print(f"sent {bytes_sent} bytes to sim in init data")
 
-        time.sleep(1)
-
-        # telling sim to end handshake and start sending data back
-        self.TCP_handshake_socket.send(self.END_MSG.encode())
-
-        print("Sent init data pickle to simulation address.")
-
-        self.TCP_handshake_socket.close()
+        ok_recv = self.TCP_handshake_socket.recv(self.BUFFER_SIZE)
+        print("Recieved from sim: ", ok_recv.decode())
 
         self.simDBLogger()
 
@@ -396,25 +393,29 @@ class DataStorage:
         """
         Internal method. Do not call manually! \n 
         logs data from sim into DB. This is the second part of our protocol called C22-SIM Protocol"""
-        self.UDP_recv_socket.settimeout(10) # socket now has n second to receive information before raising an error and ending the thread as intended
-        self.UDP_recv_socket.bind(("", self.sim_ADDR[1]))
+        self.UDP_recv_socket.settimeout(20) # socket now has n second to receive information before raising an error and ending the thread as intended
+        msg_counter = 0
+
         try:
-            print("SIMDBLOGGER")
+            print("sending start from UDP sock to sim")
+            self.UDP_recv_socket.send("start".encode()) # tell sim to 
+
             while True: # loop until self.END_MSG is received or socket times out
-                
+
                 msg = self.UDP_recv_socket.recv(self.BUFFER_SIZE) # socket.recvfrom() also returns senders ADDR.
-                msg = pickle.loads(msg)
-                
+                msg = pickle.loads(msg)                
                 
                 if msg == self.END_MSG: # when simulation is done
-                    print(f"'end' has been sent by simulation. Breaking out of loop and ending thread")
+                    print(f"END_MSG has been sent by simulation. Breaking out of loop and ending thread")
                     break
                 
-                print(f"recieved msg: {msg}")
+                # print(f"recieved msg: {msg}")
 
                 molokId = int(msg[0])
                 fillPct = float(msg[1]) 
                 timestamp = float(msg[2]) 
+
+                msg_counter += 1
                 
                 # finding molok pos with molok ID
                 self.sim_cur.execute(f"SELECT molokPos FROM '{self.table_name}' WHERE molokID = '{molokId}'")
@@ -426,12 +427,16 @@ class DataStorage:
                 # writing sim msg to DB
                 self.sim_cur.execute(f"INSERT INTO {self.table_name} (molokId, molokPos, fillPct, timestamp) VALUES (?,?,?,?)", (molokId, str(molokPos), fillPct, timestamp))
                 self.sim_con.commit()
+            
+            self.TCP_handshake_socket.close()
+            print(f"Comms ended succesfully. Recieved {msg_counter} datapoints")
 
         except Exception as e:
             print(f"The following error occured in simDBLogger: {e}")
             print("The thread will now be terminated")
             self.UDP_recv_socket.settimeout(None) # now the socket will block forever, as by default. When thread runs again, timeout is set to n above
- 
+            self.TCP_handshake_socket.close()
+
     def startSim(self, send_freq: int = 3) -> bool:
         """Uses our protocol called C22-SIM Protocol to contact simulation and handle its responses in a thread. 
         
@@ -464,23 +469,24 @@ if __name__ == "__main__":
 
         while True:
             print(DS.startSim(send_freq=sendFreq))
-            time.sleep(10)
+            time.sleep(1)
             print(myDS.show_table_by_tablename(myDS.table_name))
    
 
-    myDS = DataStorage(20, 5, ADDR=('192.168.137.104', 50050))
+    myDS = DataStorage(69, 1000, ADDR=('192.168.137.1', 12445))
 
     # print(myDS.log_sigfox_to_DB())
 
-    print(myDS.show_table_by_tablename(myDS.table_name))
+    # print(myDS.show_table_by_tablename(myDS.table_name))
 
-    # reg_dict = myDS.lin_reg_sections()
+    reg_dict = myDS.lin_reg_sections()
     # print(reg_dict)
 
-    # avg_a = myDS.avg_growth_over_period(reg_dict, period_start=time.time())
-    # print(avg_a)
+    avg_a = myDS.avg_growth_over_period(reg_dict, period_start=time.time() - 1000)
+    print(avg_a)
+    print(len(avg_a))
 
-    testOfSimThread(myDS)
+    # testOfSimThread(myDS)
 
 
     """Outcomment if you want to test"""
