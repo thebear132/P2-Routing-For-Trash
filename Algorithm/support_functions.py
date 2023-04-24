@@ -142,6 +142,8 @@ if __name__ == '__main__':
     locations = np.array([depot_position])
     locations = np.append(locations, normal_distribution(coord_center[0], coord_center[1], coord_distance_max, num_moloks), axis=0)
 
+    # num_moloks = 2
+    # locations = [(45, 10), (45, 11), (44, 10)]
     dist_matrix = create_distance_matrix(num_moloks, locations)
 
     print(dist_matrix)
