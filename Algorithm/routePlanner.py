@@ -218,10 +218,10 @@ class routePlanner:
 
         self.routing.AddDimensionWithVehicleCapacity(
             demand_callback_index,
-            0,  # null capacity slack
-            self.data['truckCapacities'],  # list of vehicle maximum capacities
-            True,  # start cumul to zero
-            'Capacity') # name of constraint
+            0,                              # null capacity slack
+            self.data['truckCapacities'],   # list of vehicle maximum capacities
+            True,                           # start cumul to zero
+            'Capacity')                     # name of constraint
 
         return "Great success"
 
