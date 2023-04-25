@@ -3,13 +3,18 @@ https://developers.google.com/optimization/routing/cvrp
 https://developers.google.com/optimization/routing/vrptw#python_3
 https://developers.google.com/optimization/routing/dimensions
 
+If they were not enough, read the entire routing section on the page from top to bottom.
+
+HUSK NU FOR FAEN AT OR-TOOLS IKKE FUCKER MED FLOATS!!! DEN SKAL FODRES INTEGERS. ELLERS ER DEN ET LILLE RØVHUL DER IKKE
+MELDER FEJL MEN SIMPELTHEN BARE GIVER UBRUGELIGT OUTPUT OG BLIVER FORNÆRMET!
+
 
 TO-DO:
  - add the solver - tror det er gjort nu. kræver testing
 
  - add solution saving and printer
 
- - add logic if no routes are found (time-windows get slack?)
+ - add logic if no routes are found (time-windows get slack? Måske noget med n iterationer og m mere slack pr iteration?)
 
  - add logic for emptying molok time not being applied from depot to molok and molok to depot (fix in time_matrix method)
 """
@@ -31,7 +36,7 @@ class routePlanner:
     def __init__(self, depotArgs: list = ["int(openTime)", "int(closeTime)", "tuple(lat, long)"],
                  molokAgrs: list = ["list[molokPositions]", "int(emptying time)", "list[fillPcts]", "int(molokCapacity(kg))", "list[estimatedLinearGrowthrates]"],
                  truckAgrs: list = ["int(range(km))", "int(numTrucks)", "int(capacity(kg))", "int(workStart)", "int(workStop)"],
-                 time_limit: int = 600,
+                 time_limit: int = 60,
                  first_solution_strategy: str = "2",
                  local_search_strategy: str = "") -> None:
         """
@@ -88,7 +93,7 @@ class routePlanner:
 
         # add constraints - maybe put in main()?
         self.time_windows_constraint = self.add_time_windows_constraint()
-        # self.capacity_constraint = self.add_capacity_constraint()
+        self.capacity_constraint = self.add_capacity_constraint()
 
 
     def createManager(self):
@@ -138,14 +143,15 @@ class routePlanner:
         data['depotOpen'] = depotArgs[0]
         data['depotClose'] = depotArgs[1]
         data['depotPos'] = depotArgs[2]
-        data['depotIndex'] = 0 # depot index of time-matrix. This is equivalent to element a_11 in matrix A
+        data['depotIndex'] = 0 # depot index of time-matrix. This is equivalent to element a_11 in some matrix A
 
         # --- molok vars ---
         data['molokPositions'] = molokArgs[0]
         data['molokEmptyTime'] = molokArgs[1]
         data['molokFillPcts'] = molokArgs[2]
         data['molokCapacity'] = molokArgs[3]
-        molok_demands = [i/100 * molokArgs[3] for i in molokArgs[2]] # List of kg trash in each molok: pct * max capacity = current weight
+        # List of kg trash in each molok: pct * max capacity = current weight. OR-Tools only accepts ints, so value is rounded
+        molok_demands = [round(i/100 * molokArgs[3]) for i in molokArgs[2]]
         data['demands'] = [0] # 0 is for depot demand
         for demand in molok_demands:
             data['demands'].append(demand)
@@ -196,6 +202,14 @@ class routePlanner:
             index = self.manager.NodeToIndex(location_idx)
             time_dimension.CumulVar(index).SetRange(time_window[0], time_window[1])
 
+        # Add time window constraints for each vehicle start node.
+        depot_idx = self.data['depotIndex']
+        for vehicle_id in range(self.data['numTrucks']):
+            index = self.routing.Start(vehicle_id)
+            time_dimension.CumulVar(index).SetRange(
+                self.data['timeWindows'][depot_idx][0],
+                self.data['timeWindows'][depot_idx][1])
+
         # Instantiate route start and end times to produce feasible times.
         for i in range(self.data['numTrucks']):
             self.routing.AddVariableMinimizedByFinalizer(
@@ -203,7 +217,7 @@ class routePlanner:
             self.routing.AddVariableMinimizedByFinalizer(
                 time_dimension.CumulVar(self.routing.End(i)))
             
-        return None
+        return True
     
     def demand_callback(self, from_index):
         """Returns the demand of the node."""
@@ -225,7 +239,11 @@ class routePlanner:
 
         return "Great success"
 
-    def showSolution(self) -> list:
+    def save_solution(self) -> list:
+        """Returns solution found by OR-Tools"""
+        pass
+
+    def print_solution(self) -> list:
         """Returns solution found by OR-Tools"""
         pass
 
@@ -252,7 +270,7 @@ class routePlanner:
 if __name__ == "__main__":
 
     depotArgs = [600, 2200, (45, 10)] # 6:00 to 22:00 o'clock and position is (lat, long)
-    molokArgs = [[(45, 11), (44, 10), (44, 11)], 10, [80, 90, 75], 500, [0.05, 0.04, 0.06]] # molokCoordinate list, emptying time cost in minutes, fillPct-list, molok capacity in kg, linear growth rates
+    molokArgs = [[(45, 11), (43.5, 10), (44, 11)], 10, [80, 90, 75], 500, [0.05, 0.04, 0.06]] # molokCoordinate list, emptying time cost in minutes, fillPct-list, molok capacity in kg, linear growth rates
     truckArgs = [150, 2, 3000, 600, 1400] # range, number of trucks, truck capacity in kg, working from 6:00 to 14:00
 
     rp = routePlanner(depotArgs=depotArgs, molokAgrs=molokArgs, truckAgrs=truckArgs)
