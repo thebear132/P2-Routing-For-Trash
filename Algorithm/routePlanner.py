@@ -16,7 +16,7 @@ TO-DO:
 
  - add logic if no routes are found (time-windows get slack? Måske noget med n iterationer og m mere slack pr iteration?)
 
- - add logic for emptying molok time not being applied from depot to molok and molok to depot (fix in time_matrix method)
+ - add distance constraint for trucks
 """
 
 
@@ -104,7 +104,10 @@ class routePlanner:
 
     def time_matrix(self, depotPos, molokPos, time_to_empty_molok: int, truckSpeed=50) -> any:
         """creates the time-matrix based on assumption of avg. speed of truck and haversine distance between points
-        also adds the time it takes to empty a molok"""
+        also adds the time it takes to empty a molok.
+        Empty time is applied at beginning of transit between points as it results in a truck being able to reach a molok
+        before time window closes and then empty it instead of the other way around.
+        This means that empty time is NOT applied from depot to molok, but only from molok to molok or molok to depot"""
 
         locations = [depotPos] + molokPos
         numMoloks = len(molokPos)
@@ -123,10 +126,14 @@ class routePlanner:
             for j in range(i + 1, row_length): # j is column-index.
                 
                 distance = sf.decimaldegrees_to_meters(locations[i], locations[j])
+
                 drive_time = round((distance / speed_mtr_pr_min) + molok_ET, 0) # round to whole minutes. OR-Tools requires ints
 
-                # spejler indgangene i hoveddiagonalen, så molok A til B er den samme distance som B til A
-                time_matrix[i][j] = drive_time
+                # mirror entries in main daigonal, so that molok i to j is same as j to i, except from depot(i = 0) to j
+                if i == 0:
+                    time_matrix[i][j] = drive_time - molok_ET
+                else:
+                    time_matrix[i][j] = drive_time
                 time_matrix[j][i] = drive_time
         
         finish_time = time.time()
@@ -180,9 +187,12 @@ class routePlanner:
         to_node = self.manager.IndexToNode(to_index)
         return self.data['time_matrix'][from_node][to_node]
 
-    def add_time_windows_constraint(self) -> any:
-        """creates and adds the time windows (VRPTW) constraint to self.routing"""
-        time = 'Time' # name of dimension
+    def add_time_windows_constraint(self) -> str:
+        """
+        creates and adds the time windows (VRPTW) constraint to self.routing
+        returns dimension name
+        """
+        dim_name = 'Time' # name of dimension
 
         workhours_in_minutes = self.data["truckWorkStop"] - self.data["truckWorkStart"]
         # print(f"workhours in minutes: {workhours_in_minutes}")
@@ -192,8 +202,8 @@ class routePlanner:
             0,  # don't allow waiting time at moloks
             workhours_in_minutes,  # maximum time per vehicle
             True,  # Force start cumul to zero meaning trucks start driving immediately.
-            time) # dimension name assigned here
-        time_dimension = self.routing.GetDimensionOrDie(time)
+            dim_name) # dimension name assigned here
+        time_dimension = self.routing.GetDimensionOrDie(dim_name)
 
         # Add time window constraints for each location except depot.
         for location_idx, time_window in enumerate(self.data['timeWindows']):
@@ -217,7 +227,7 @@ class routePlanner:
             self.routing.AddVariableMinimizedByFinalizer(
                 time_dimension.CumulVar(self.routing.End(i)))
             
-        return True
+        return dim_name
     
     def demand_callback(self, from_index):
         """Returns the demand of the node."""
@@ -225,9 +235,9 @@ class routePlanner:
         from_node = self.manager.IndexToNode(from_index)
         return self.data['demands'][from_node]
     
-    def add_capacity_constraint(self) -> any:
+    def add_capacity_constraint(self) -> str:
         """creates and adds the capacity (CPTW) constraint to self.routing"""
-
+        dim_name = 'Capacity'
         demand_callback_index = self.routing.RegisterUnaryTransitCallback(self.demand_callback)
 
         self.routing.AddDimensionWithVehicleCapacity(
@@ -235,13 +245,61 @@ class routePlanner:
             0,                              # null capacity slack
             self.data['truckCapacities'],   # list of vehicle maximum capacities
             True,                           # start cumul to zero
-            'Capacity')                     # name of constraint
+            dim_name)                     # name of constraint
 
-        return "Great success"
+        return dim_name
+    
+    def get_routes(self, solution, routing, manager):
+        """
+        Get vehicle routes from a solution and store them in a list. Get vehicle routes and store them in a 
+        two dimensional list whose i,j entry is the jth location visited by vehicle i along its route.
+        """
+        routes = []
 
-    def save_solution(self) -> list:
-        """Returns solution found by OR-Tools"""
-        pass
+        for truck_num in range(routing.vehicles()):             # loop over each trucks route
+            index = routing.Start(truck_num)                    # get index of start-node for truck
+            
+            route = [manager.IndexToNode(index)]                # start route-list for truck. Should always be [0], as that is the depot index
+            
+            while not routing.IsEnd(index):                     # loop until route ends (meaning return to depot)
+                index = solution.Value(routing.NextVar(index))  # get next index
+                route.append(manager.IndexToNode(index))        # append node to route
+                # print(f"route-var: {route}")
+
+            routes.append(route)
+
+        return routes
+
+
+    def get_cumul_data(self, solution, routing, dimension):
+        """
+        Get cumulative data from a dimension and store it in a list.
+        Returns a list 'cumul_data' whose i,j entry contains the minimum and maximum of 'CumulVar' for the dimension
+        at the jth node on route :
+        - cumul_data[i][j][0] is the minimum.
+        - cumul_data[i][j][1] is the maximum.
+        """
+        cumul_data = []
+
+        for truck_num in range(routing.vehicles()):             # loop over each trucks route
+            route_data = []
+            
+            index = routing.Start(truck_num)                    # get index of start-node for truck
+            dim_var = dimension.CumulVar(index)                 # get value of dimension at that index
+            min_dim_var = solution.Min(dim_var)
+            max_dim_var = solution.Max(dim_var)
+            route_data.append([min_dim_var, max_dim_var])
+
+            while not routing.IsEnd(index):                     # loop until route ends (meaning return to depot)
+                index = solution.Value(routing.NextVar(index))  # get next index
+                dim_var = dimension.CumulVar(index)
+                min_dim_var = solution.Min(dim_var)
+                max_dim_var = solution.Max(dim_var)
+                route_data.append([min_dim_var, max_dim_var])
+
+            cumul_data.append(route_data)
+
+        return cumul_data
 
     def print_solution(self) -> list:
         """Returns solution found by OR-Tools"""
@@ -280,33 +338,43 @@ if __name__ == "__main__":
 
     print(solution)
 
-def print_solution(data, manager, routing, solution):
-    """Prints solution on console."""
-    print(f'Objective: {solution.ObjectiveValue()}')
-    time_dimension = routing.GetDimensionOrDie('Time')
-    total_time = 0
-    for vehicle_id in range(data['numTrucks']):
-        index = routing.Start(vehicle_id)
-        plan_output = 'Route for vehicle {}:\n'.format(vehicle_id)
-        while not routing.IsEnd(index):
+    routes = rp.get_routes(solution, rp.routing, rp.manager)
+
+    time_const = rp.routing.GetDimensionOrDie(rp.time_windows_constraint)
+    tws = rp.get_cumul_data(solution, rp.routing, dimension=time_const)
+
+    capacity_const = rp.routing.GetDimensionOrDie(rp.capacity_constraint)
+    truck_loads = rp.get_cumul_data(solution, rp.routing, capacity_const)
+
+    print(routes)
+    print(tws)
+    print(truck_loads)
+
+
+
+    def print_solution(data, manager, routing, solution):
+        """Prints solution on console."""
+        print(f'Objective: {solution.ObjectiveValue()}')
+        time_dimension = routing.GetDimensionOrDie('Time')
+        total_time = 0
+        for vehicle_id in range(data['numTrucks']):
+            index = routing.Start(vehicle_id)
+            plan_output = 'Route for vehicle {}:\n'.format(vehicle_id)
+            while not routing.IsEnd(index):
+                time_var = time_dimension.CumulVar(index)
+                plan_output += '{0} Time({1},{2}) -> '.format(
+                    manager.IndexToNode(index), solution.Min(time_var),
+                    solution.Max(time_var))
+                index = solution.Value(routing.NextVar(index))
             time_var = time_dimension.CumulVar(index)
-            plan_output += '{0} Time({1},{2}) -> '.format(
-                manager.IndexToNode(index), solution.Min(time_var),
-                solution.Max(time_var))
-            index = solution.Value(routing.NextVar(index))
-        time_var = time_dimension.CumulVar(index)
-        plan_output += '{0} Time({1},{2})\n'.format(manager.IndexToNode(index),
-                                                    solution.Min(time_var),
-                                                    solution.Max(time_var))
-        plan_output += 'Time of the route: {}min\n'.format(
-            solution.Min(time_var))
-        print(plan_output)
-        total_time += solution.Min(time_var)
-    print('Total time of all routes: {}min'.format(total_time))
+            plan_output += '{0} Time({1},{2})\n'.format(manager.IndexToNode(index),
+                                                        solution.Min(time_var),
+                                                        solution.Max(time_var))
+            plan_output += 'Time of the route: {}min\n'.format(
+                solution.Min(time_var))
+            print(plan_output)
+            total_time += solution.Min(time_var)
+        print('Total time of all routes: {}min'.format(total_time))
 
 
-print_solution(data=rp.data, manager=rp.manager, routing=rp.routing, solution= solution)
-
-
-# Assignment(Time0 (0) | Time1 (392) | Time2 (143) | Time3 (249) | Time4 (0) | Time5 (496) | Time6 (0) | Nexts0 (2) | Nexts1 (5) | Nexts2 (3) | Nexts3 
-# (1) | Nexts4 (6) | Active0 (1) | Active1 (1) | Active2 (1) | Active3 (1) | Active4 (1) | Vehicles0 (0) | Vehicles1 (0) | Vehicles2 (0) | Vehicles3 (0) | Vehicles4 (1) | Vehicles5 (0) | Vehicles6 (1) | (496))
+    print_solution(data=rp.data, manager=rp.manager, routing=rp.routing, solution= solution)
