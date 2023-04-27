@@ -8,19 +8,23 @@ If they were not enough, read the entire routing section on the page from top to
 HUSK NU FOR FAEN AT OR-TOOLS IKKE FUCKER MED FLOATS!!! DEN SKAL FODRES INTEGERS. ELLERS ER DEN ET LILLE RØVHUL DER IKKE
 MELDER FEJL MEN SIMPELTHEN BARE GIVER UBRUGELIGT OUTPUT OG BLIVER FORNÆRMET!
 
+TO-TEST:
+ - add the solver - tror det er gjort nu. kræver testing
+ - add method for getting timestamps for moloks when they are cannonically emptied - tror det er gjort nu. Valider med DS
 
 TO-DO:
- - add the solver - tror det er gjort nu. kræver testing
-
- - add solution saving and printer
+ - add distance constraint for trucks (update printer afterwards)
 
  - add logic if no routes are found (time-windows get slack? Måske noget med n iterationer og m mere slack pr iteration?)
+    - might solve C3 and C5 below
 
- - add distance constraint for trucks
+REQUIREMENTS YET TO FULLFILL:
+ - {C3:} The route planner must be able to produce routes in time for the drivers to use them
+
+ - {C5:} The route planner must save the current best set of routes
+
+ - {C6:} The route planner must take working hours of garbage men into consideration and try to make the routes take similar amounts of time - SVÆR
 """
-
-
-
 
 import numpy as np
 import time
@@ -95,7 +99,7 @@ class routePlanner:
         self.time_windows_constraint = self.add_time_windows_constraint()
         self.capacity_constraint = self.add_capacity_constraint()
 
-
+    # --- Methods for creating data model ---
     def createManager(self):
         """Create the routing index manager"""
         manager = pywrapcp.RoutingIndexManager(len(self.data['time_matrix']),
@@ -179,7 +183,7 @@ class routePlanner:
 
         return data
     
-
+    # --- Methods for creating constraints ---
     def time_callback(self, from_index, to_index):
         """Returns the travel time between the two nodes."""
         # Convert from routing variable Index to time matrix NodeIndex.
@@ -248,7 +252,8 @@ class routePlanner:
             dim_name)                     # name of constraint
 
         return dim_name
-    
+
+    # --- Methods for presenting solution ---
     def get_routes(self, solution, routing, manager):
         """
         Get vehicle routes from a solution and store them in a list. Get vehicle routes and store them in a 
@@ -270,7 +275,6 @@ class routePlanner:
 
         return routes
 
-
     def get_cumul_data(self, solution, routing, dimension):
         """
         Get cumulative data from a dimension and store it in a list.
@@ -278,6 +282,7 @@ class routePlanner:
         at the jth node on route :
         - cumul_data[i][j][0] is the minimum.
         - cumul_data[i][j][1] is the maximum.
+        - In some cases, the min and max are the same as there is only one value (fx. capacity)
         """
         cumul_data = []
 
@@ -288,22 +293,81 @@ class routePlanner:
             dim_var = dimension.CumulVar(index)                 # get value of dimension at that index
             min_dim_var = solution.Min(dim_var)
             max_dim_var = solution.Max(dim_var)
-            route_data.append([min_dim_var, max_dim_var])
+            route_data.append(max_dim_var)
+            # route_data.append([min_dim_var, max_dim_var])
 
             while not routing.IsEnd(index):                     # loop until route ends (meaning return to depot)
                 index = solution.Value(routing.NextVar(index))  # get next index
                 dim_var = dimension.CumulVar(index)
                 min_dim_var = solution.Min(dim_var)
                 max_dim_var = solution.Max(dim_var)
-                route_data.append([min_dim_var, max_dim_var])
+                route_data.append(max_dim_var)
+                # route_data.append([min_dim_var, max_dim_var])
 
             cumul_data.append(route_data)
 
         return cumul_data
 
-    def print_solution(self) -> list:
-        """Returns solution found by OR-Tools"""
-        pass
+    def get_molok_empty_timestamps(self, routes, visit_times) -> list:
+        """returns a list of tuples consisting of molok ID and the time from route-start to the molok being emptied (in seconds)"""
+
+        molok_IDs_and_empty_time = []
+
+        for route_num in range(len(routes)):
+            zipped_route = list(zip(routes[route_num], visit_times[route_num]))
+
+            for pair in zipped_route:
+                if pair[0] != 0:                            # only continue of node index not equal to depot
+                    true_molok_ID = pair[0] - 1             # All molok IDs begin from 1, since 0 is reserved for depot. subtract 1 to match DataStorage
+                    empty_time_mins = pair[1]
+                    empty_time_secs = empty_time_mins * 60  # Time in seconds since truck started driving and it stopped to empty molok
+                    molok_IDs_and_empty_time.append((true_molok_ID, empty_time_secs))
+
+        return molok_IDs_and_empty_time                     # list of tuples of (ID, time in seconds)
+
+    def print_solution(self, routes: list, visit_times: list, cumul_load: list) -> None:
+        """Prints solution along with cumulative data and stats on routes"""
+
+        print("\n________Route Planner output________")
+        # print(f'Objective: {solution.ObjectiveValue()}')        # Tror det er OR-Tools gæt på optimal værdi af total tid
+        
+        total_time = 0
+        total_load = 0
+        num_trucks = len(routes)
+
+        for truck in range(num_trucks):
+            print(f"\nTruck {truck}'s route with node index (visit-times) [cumulative load]:")
+            route_string = f"Truck {truck}: "                   # begin route at depot
+            route_lst = routes[truck]                           # save trucks route to var
+            route_visit_times = visit_times[truck]              # save trucks visit times to var
+            route_cumul_load = cumul_load[truck]                # save trucks cumulative load to var
+
+            stops = len(route_lst)
+            for stop_num in range(stops):                       # loop over the length of trucks route
+                node = route_lst[stop_num]                      # molok or depot index (if 0)
+                node_time = route_visit_times[stop_num]         # visit time at node
+                node_cumul_load = route_cumul_load[stop_num]    # cumulative load at node
+                
+                route_string += f"{node} ({node_time}) [{node_cumul_load}]"
+
+                if stop_num < stops - 1:                        # add an arrow between nodes
+                    route_string += " -> "
+                
+                elif stop_num == stops - 1:                     # add totals to end of route string
+                    route_string += f"\nRoutes total time: {node_time} min \nRoutes total load: {node_cumul_load} kg"
+                    total_time += node_time                     # count total time
+                    total_load += node_cumul_load               # count total load
+            print(route_string)
+        
+        # --- key values ---
+        num_moloks = len(self.data['molokPositions'])
+        final_string = f"\n___Key numbers___\n\nMoloks emptied: {num_moloks} \n"
+        final_string += f"Total time spent: {total_time} min \nTotal load collected: {total_load} kg \n"
+        final_string += f"Average number of moloks pr. route: {num_moloks / num_trucks} moloks/route \n"
+        final_string += f"Average time spent pr. route: {total_time / num_trucks} min/route \n"
+        final_string += f"Average load collected pr. route: {total_load / num_trucks} kg/route \n"
+
+        print(final_string)
 
 
     def main(self):
@@ -320,7 +384,7 @@ class routePlanner:
 
         solution = self.routing.SolveWithParameters(search_parameters)
 
-        print("Solver status: ", self.routing.status())
+        # print("Solver status: ", self.routing.status())
 
         return solution
 
@@ -336,7 +400,7 @@ if __name__ == "__main__":
 
     solution = rp.main()
 
-    print(solution)
+    # print(solution)
 
     routes = rp.get_routes(solution, rp.routing, rp.manager)
 
@@ -346,35 +410,6 @@ if __name__ == "__main__":
     capacity_const = rp.routing.GetDimensionOrDie(rp.capacity_constraint)
     truck_loads = rp.get_cumul_data(solution, rp.routing, capacity_const)
 
-    print(routes)
-    print(tws)
-    print(truck_loads)
+    rp.print_solution(routes, tws, truck_loads)
 
-
-
-    def print_solution(data, manager, routing, solution):
-        """Prints solution on console."""
-        print(f'Objective: {solution.ObjectiveValue()}')
-        time_dimension = routing.GetDimensionOrDie('Time')
-        total_time = 0
-        for vehicle_id in range(data['numTrucks']):
-            index = routing.Start(vehicle_id)
-            plan_output = 'Route for vehicle {}:\n'.format(vehicle_id)
-            while not routing.IsEnd(index):
-                time_var = time_dimension.CumulVar(index)
-                plan_output += '{0} Time({1},{2}) -> '.format(
-                    manager.IndexToNode(index), solution.Min(time_var),
-                    solution.Max(time_var))
-                index = solution.Value(routing.NextVar(index))
-            time_var = time_dimension.CumulVar(index)
-            plan_output += '{0} Time({1},{2})\n'.format(manager.IndexToNode(index),
-                                                        solution.Min(time_var),
-                                                        solution.Max(time_var))
-            plan_output += 'Time of the route: {}min\n'.format(
-                solution.Min(time_var))
-            print(plan_output)
-            total_time += solution.Min(time_var)
-        print('Total time of all routes: {}min'.format(total_time))
-
-
-    print_solution(data=rp.data, manager=rp.manager, routing=rp.routing, solution= solution)
+    print(rp.get_molok_empty_timestamps(routes, tws))
