@@ -272,6 +272,7 @@ class DataStorage:
 
         return avg_growthrates
 
+
     def calc_fillpcts_from_MD(self, distance, molok_depth) -> float:
         """Calculates the fillpct from a measuring device based on measured distance and molok depth (both in cm)"""
         # the pct-wise distance from sensor to garbage. subtract from 100% to get garbage pct
@@ -292,7 +293,7 @@ class DataStorage:
 
 
     def get_sigfox_data(self, epoch):
-        """Get msgs from sigfox network for device with id 0 or 1 that were recieved after 'epoch' epoch time
+        """Get msgs from sigfox network for the measuring device that were recieved after 'epoch' epoch time
         by the network"""
 
         epoch = str((int(epoch) + 1) * 1000) # Do not include specified 'epoch'. Only msgs after (AKA > epoch)
@@ -398,7 +399,7 @@ class DataStorage:
 
         try:
             print("sending start from UDP sock to sim")
-            self.UDP_recv_socket.send("start".encode()) # tell sim to 
+            self.UDP_recv_socket.send("start".encode()) # tell sim to begin sending simulated measurements
 
             while True: # loop until self.END_MSG is received or socket times out
 
