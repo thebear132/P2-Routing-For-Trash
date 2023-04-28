@@ -11,28 +11,30 @@ class Simulation:
         if start_listen != True:    #If start_listen == False -> simulate() debug mode
             return
         
-        # TCP SOCKET
         HOST = ''                   # All available interfaces. local/online DataStorage.py
         BUFFER_SIZE = 1024
         END_MESSAGE = b"stop"
 
+        # TCP SOCKET
+        TCP_handshake_socket = socket(AF_INET, SOCK_STREAM) # IPv4, TCP
+        TCP_handshake_socket.bind((HOST, PORT))             # Bind(listen) sockect to the address
+        TCP_handshake_socket.listen(1)                      # Listen for connections on the socket (0-5)
+
         while True:
             # Start both sockets for listening, as the protocol (to not lose messages in UDP as they are put into a buffer)
-            TCP_handshake_socket = socket(AF_INET, SOCK_STREAM) # IPv4, TCP
-            TCP_handshake_socket.bind((HOST, PORT))             # Bind(listen) sockect to the address
-            TCP_handshake_socket.listen(1)                      # Listen for connections on the socket (0-5)
-
-            UDP_data_socket = socket(AF_INET, SOCK_DGRAM)       # IPv4, UDP
-            UDP_data_socket.bind((HOST, PORT))                  # Bind sockect to the address
+            UDP_data_socket = socket(AF_INET, SOCK_DGRAM)       # IPv4, UDP    
 
             """INITIAL HANDSHAKE PART (TCP)"""
-            print('----- TCP SERVER RUNNING -----')
-            print('Listening for incoming connections in port ' + str(PORT))
+            print('-----        TCP SERVER RUNNING        -----')
+            print(f"Listening for incoming connections on {(HOST, PORT)}")
             
             # TCP handshake. c = SOCKET to client. a = ADDRESS of client
             TCP_connected_sock, tcpADDR = TCP_handshake_socket.accept()        
-            print('[1] * Connection received from {}'.format(tcpADDR))
+            print('[1] Connection received from {}'.format(tcpADDR))
             
+            print(f"    Connecting UDP socket {(tcpADDR[0], PORT)}")
+            UDP_data_socket.connect((tcpADDR[0], PORT))                  # Bind sockect to the address
+
             try:
                 numberOfPackets = 0
                 msg = b""
@@ -51,17 +53,11 @@ class Simulation:
             fill_pct = initData[1]
             sendHyp = initData[2]
             time_stamps = initData[3]
-
-            TCP_connected_sock.send("ok".encode())
-            print("[3] Sent <ok> to client")
-
+            
             
             """SIMULATION PART (UDP)"""
-            proceed, udpADDR = UDP_data_socket.recvfrom(BUFFER_SIZE)
-            print("[4] Clients is ready to proceed:", proceed)
-
             SIMULATED_DATA = self.simulate(seed, fill_pct, sendHyp, time_stamps)
-            print(f"[5] Sending {len(SIMULATED_DATA)*len(SIMULATED_DATA[0])} UDP Sim data packets to {udpADDR}")
+            print(f"[5] Sending {len(SIMULATED_DATA)*len(SIMULATED_DATA[0])} UDP Sim data packets to DS")
             for sending_lap in SIMULATED_DATA:                  # For each sendings hyppighed
                 for id in range(len(sending_lap)):              # for each molok in sending -> [(fillPct, timestamp)]
                     fill_pct = sending_lap[id][0]               # Grab fillPct
@@ -71,18 +67,19 @@ class Simulation:
                     sl = pickle.dumps(send_list)                # dumps: (MolokID, fill_pct, sendhyp)
                     #sleep(0.01)
                     #print(send_list[0], end=", ")
-                    UDP_data_socket.sendto(sl, udpADDR)
+                    UDP_data_socket.send(sl)
             
             
             end = pickle.dumps(END_MESSAGE.decode())                           # End session
-            UDP_data_socket.sendto(end, udpADDR)
+            UDP_data_socket.send(end)
             
             """END SESSION"""
             # Close all sockets, ready for a new session
             TCP_connected_sock.close()
-            TCP_handshake_socket.close()
+            #TCP_handshake_socket.close()
             UDP_data_socket.close()
-            print("\n[6] SESSION WITH", udpADDR, "ended")
+            sleep(1)
+            print("\n[6] SESSION WITH data storage ended")
 
 
 
@@ -129,5 +126,3 @@ class Simulation:
 
 sim = Simulation(start_listen=True)
 #print(sim.simulate(2, [2, 2, 2], 2, [1, 1, 1]))
-
-

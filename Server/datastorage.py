@@ -5,7 +5,6 @@ import time
 import threading
 import pickle
 from scipy import stats
-import hashlib
 import requests
 import json
 
@@ -17,7 +16,7 @@ class DataStorage:
     Manipulates data and presents it to 'Route Planner' or 'GUI'
     """
 
-    def __init__(self, seed: any, num_moloks: int, center_coordinates = (57.01466, 9.987159), scale = 0.01 , ADDR = ('127.0.0.1', 9999)) -> None:
+    def __init__(self, seed: any, num_moloks: int, center_coordinates = (57.01466, 9.987159), scale = 0.01 , ADDR = ('127.0.0.1', 12445)) -> None:
         """
         There are two different ways to initialize DataStorages comms
         1. with ADDR = '(IP, PORT)' -> creates server socket for communication with simulation
@@ -50,10 +49,10 @@ class DataStorage:
             self.END_MSG = "stop"
             self.UDP_recv_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) # IPv4, UDP
 
+            self.UDP_recv_socket.bind(("", self.sim_ADDR[1])) # UDP server sock for receiving from sim
+
             # IPAddr=socket.gethostbyname(socket.gethostname())
             # print(f"My IP is : {IPAddr}")
-            
-            self.UDP_recv_socket.connect(self.sim_ADDR)
 
             self.sim_thread = None # creating simThread variable
             
@@ -356,7 +355,7 @@ class DataStorage:
         # --- socket var ---
         try:
             self.TCP_handshake_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # IPv4, TCP
-            self.TCP_handshake_socket.connect(self.sim_ADDR)
+            self.TCP_handshake_socket.connect(self.sim_ADDR) # client sock to send init data to sim
 
         except TimeoutError as e:
             print(f"TimeoutError: {e}")
@@ -383,9 +382,6 @@ class DataStorage:
         bytes_sent = self.TCP_handshake_socket.send(init_data_pickle + self.END_MSG.encode())
         print(f"sent {bytes_sent} bytes to sim in init data")
 
-        ok_recv = self.TCP_handshake_socket.recv(self.BUFFER_SIZE)
-        print("Recieved from sim: ", ok_recv.decode())
-
         self.simDBLogger()
 
         return True
@@ -398,12 +394,9 @@ class DataStorage:
         msg_counter = 0
 
         try:
-            print("sending start from UDP sock to sim")
-            self.UDP_recv_socket.send("start".encode()) # tell sim to begin sending simulated measurements
-
             while True: # loop until self.END_MSG is received or socket times out
 
-                msg = self.UDP_recv_socket.recv(self.BUFFER_SIZE) # socket.recvfrom() also returns senders ADDR.
+                msg = self.UDP_recv_socket.recv(self.BUFFER_SIZE)
                 msg = pickle.loads(msg)                
                 
                 if msg == self.END_MSG: # when simulation is done
@@ -470,24 +463,24 @@ if __name__ == "__main__":
 
         while True:
             print(DS.startSim(send_freq=sendFreq))
-            time.sleep(1)
+            time.sleep(3)
             print(myDS.show_table_by_tablename(myDS.table_name))
    
 
-    myDS = DataStorage(69, 1000, ADDR=('192.168.137.1', 12445))
+    myDS = DataStorage(69, 1000, ADDR=('127.0.0.1', 12445))
 
     # print(myDS.log_sigfox_to_DB())
 
     # print(myDS.show_table_by_tablename(myDS.table_name))
 
-    reg_dict = myDS.lin_reg_sections()
+    # reg_dict = myDS.lin_reg_sections()
     # print(reg_dict)
 
-    avg_a = myDS.avg_growth_over_period(reg_dict, period_start=time.time() - 1000)
-    print(avg_a)
-    print(len(avg_a))
+    # avg_a = myDS.avg_growth_over_period(reg_dict, period_start=time.time() - 1000)
+    # print(avg_a)
+    # print(len(avg_a))
 
-    # testOfSimThread(myDS)
+    testOfSimThread(myDS)
 
 
     """Outcomment if you want to test"""
