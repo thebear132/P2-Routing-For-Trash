@@ -5,16 +5,12 @@ https://developers.google.com/optimization/routing/dimensions
 
 If they were not enough, read the entire routing section on the page from top to bottom.
 
-HUSK NU FOR FAEN AT OR-TOOLS IKKE FUCKER MED FLOATS!!! DEN SKAL FODRES INTEGERS. ELLERS ER DEN ET LILLE RØVHUL DER IKKE
-MELDER FEJL MEN SIMPELTHEN BARE GIVER UBRUGELIGT OUTPUT OG BLIVER FORNÆRMET!
 
 TO-TEST:
- - add the solver - tror det er gjort nu. kræver testing
+ - add the solver - tror det er gjort nu. kræver testing. Opstil tests
  - add method for getting timestamps for moloks when they are cannonically emptied - tror det er gjort nu. Valider med DS
 
 TO-DO:
- - add distance constraint for trucks (update printer afterwards)
-
  - add logic if no routes are found (time-windows get slack? Måske noget med n iterationer og m mere slack pr iteration?)
     - might solve C3 and C5 below
 
@@ -94,10 +90,10 @@ class routePlanner:
         # Define cost of each arc.
         self.routing.SetArcCostEvaluatorOfAllVehicles(self.transit_callback_index)
 
-
         # add constraints - maybe put in main()?
         self.time_windows_constraint = self.add_time_windows_constraint()
         self.capacity_constraint = self.add_capacity_constraint()
+        self.range_constraint = self.add_truckrange_constraint()
 
     # --- Methods for creating data model ---
     def createManager(self):
@@ -106,9 +102,9 @@ class routePlanner:
                                            self.data['numTrucks'], self.data['depotIndex'])
         return manager
 
-    def time_matrix(self, depotPos, molokPos, time_to_empty_molok: int, truckSpeed=50) -> any:
+    def time_and_dist_matrices(self, depotPos, molokPos, time_to_empty_molok: int, truckSpeed=50) -> any:
         """creates the time-matrix based on assumption of avg. speed of truck and haversine distance between points
-        also adds the time it takes to empty a molok.
+        also adds the time it takes to empty a molok. Distance matrix is created with haversine distance as well.
         Empty time is applied at beginning of transit between points as it results in a truck being able to reach a molok
         before time window closes and then empty it instead of the other way around.
         This means that empty time is NOT applied from depot to molok, but only from molok to molok or molok to depot"""
@@ -120,19 +116,23 @@ class routePlanner:
         # generalisation on truck speed
         speed_kmh = truckSpeed # km/h
         speed_mtr_pr_min = (speed_kmh * 1000) / 60 # meters/minute
-
+        
         start_time = time.time()
 
         time_matrix = np.zeros(shape=(numMoloks + 1, numMoloks + 1), dtype=np.int64) # +1 because of the depot at ij = 00.
+        distance_matrix = np.zeros_like(time_matrix)
 
         for i in range(len(locations)): # row index
             row_length = len(locations) # Only calc all entries over main diagonal, so i + 1 is subtracted from j's range
             for j in range(i + 1, row_length): # j is column-index.
                 
                 distance = sf.decimaldegrees_to_meters(locations[i], locations[j])
+                
+                distance_matrix[i][j] = round(distance)
+                distance_matrix[j][i] = round(distance)
 
                 drive_time = round((distance / speed_mtr_pr_min) + molok_ET, 0) # round to whole minutes. OR-Tools requires ints
-
+                
                 # mirror entries in main daigonal, so that molok i to j is same as j to i, except from depot(i = 0) to j
                 if i == 0:
                     time_matrix[i][j] = drive_time - molok_ET
@@ -142,9 +142,9 @@ class routePlanner:
         
         finish_time = time.time()
 
-        print(f"created time matrix of size {time_matrix.shape} in {finish_time - start_time} seconds")
+        print(f"created matrices of size {time_matrix.shape} in {finish_time - start_time} seconds")
  
-        return time_matrix
+        return time_matrix, distance_matrix
 
     def createDataModel(self, depotArgs, molokArgs, truckArgs) -> dict:
         """Stores the data for the problem."""
@@ -179,7 +179,7 @@ class routePlanner:
         data['truckCapacities'] = [truckArgs[2]] * truckArgs[1] # create list of truck capacities for OR-Tools to use
         data['truckWorkStart'] = truckArgs[3]
         data['truckWorkStop'] = truckArgs[4]
-        data['time_matrix'] = self.time_matrix(data['depotPos'], data['molokPositions'], data["molokEmptyTime"], truckSpeed=50)
+        data['time_matrix'], data['distance_matrix'] = self.time_and_dist_matrices(data['depotPos'], data['molokPositions'], data["molokEmptyTime"])
 
         return data
     
@@ -249,7 +249,31 @@ class routePlanner:
             0,                              # null capacity slack
             self.data['truckCapacities'],   # list of vehicle maximum capacities
             True,                           # start cumul to zero
-            dim_name)                     # name of constraint
+            dim_name)                       # name of constraint
+
+        return dim_name
+
+    def distance_callback(self, from_index, to_index):
+        """Returns the travel distance between the two nodes."""
+        # Convert from routing variable Index to time matrix NodeIndex.
+        from_node = self.manager.IndexToNode(from_index)
+        to_node = self.manager.IndexToNode(to_index)
+        return self.data['distance_matrix'][from_node][to_node]
+    
+    def add_truckrange_constraint(self):
+        """creates and adds the trucks' range as a constraint to self.routing"""
+        dim_name = 'Travelled_Distance'
+        distance_callback_index = self.routing.RegisterTransitCallback(self.distance_callback)
+
+        truck_range_meters = self.data['truckRange'] * 1000     # convert from km to meters
+
+        self.routing.AddDimension(
+            distance_callback_index,
+            0,                                  # null range slack
+            truck_range_meters,                 # truck ranges list
+            True,                               # start cumul to zero
+            dim_name                            # name of constraint
+        )
 
         return dim_name
 
@@ -325,47 +349,59 @@ class routePlanner:
 
         return molok_IDs_and_empty_time                     # list of tuples of (ID, time in seconds)
 
-    def print_solution(self, routes: list, visit_times: list, cumul_load: list) -> None:
+    def print_solution(self, routes: list, visit_times: list, cumul_load: list, cumul_dist) -> None:
         """Prints solution along with cumulative data and stats on routes"""
 
         print("\n________Route Planner output________")
         # print(f'Objective: {solution.ObjectiveValue()}')        # Tror det er OR-Tools gæt på optimal værdi af total tid
         
         total_time = 0
+        total_dist = 0
         total_load = 0
         num_trucks = len(routes)
+        trucks_utilized = 0
 
         for truck in range(num_trucks):
-            print(f"\nTruck {truck}'s route with node index (visit-times) [cumulative load]:")
+            print(f"\nTruck {truck}'s route with node index (visit-times) |driven distance| [cumulative load]:")
             route_string = f"Truck {truck}: "                   # begin route at depot
             route_lst = routes[truck]                           # save trucks route to var
             route_visit_times = visit_times[truck]              # save trucks visit times to var
             route_cumul_load = cumul_load[truck]                # save trucks cumulative load to var
+            route_cumul_dist = cumul_dist[truck]                # save trucks cumulative distance to var
 
             stops = len(route_lst)
             for stop_num in range(stops):                       # loop over the length of trucks route
                 node = route_lst[stop_num]                      # molok or depot index (if 0)
                 node_time = route_visit_times[stop_num]         # visit time at node
                 node_cumul_load = route_cumul_load[stop_num]    # cumulative load at node
+                node_cumul_dist = route_cumul_dist[stop_num]    # cumulative distance at node
+                node_cumul_dist = node_cumul_dist / 1000        # convert to km
                 
-                route_string += f"{node} ({node_time}) [{node_cumul_load}]"
+                route_string += f"{node} ({node_time}) |{node_cumul_dist}| [{node_cumul_load}]"
 
                 if stop_num < stops - 1:                        # add an arrow between nodes
                     route_string += " -> "
                 
                 elif stop_num == stops - 1:                     # add totals to end of route string
-                    route_string += f"\nRoutes total time: {node_time} min \nRoutes total load: {node_cumul_load} kg"
+                    route_string += f"\nRoutes total time: {node_time} min \nRoutes total distance: {node_cumul_dist} km \nRoutes total load: {node_cumul_load} kg"
                     total_time += node_time                     # count total time
                     total_load += node_cumul_load               # count total load
+                    total_dist += node_cumul_dist               # count total distance
+
+                    if node_time != 0:                          # If truck actually left depot, count it as utilized
+                        trucks_utilized += 1 
+
             print(route_string)
         
         # --- key values ---
         num_moloks = len(self.data['molokPositions'])
         final_string = f"\n___Key numbers___\n\nMoloks emptied: {num_moloks} \n"
-        final_string += f"Total time spent: {total_time} min \nTotal load collected: {total_load} kg \n"
-        final_string += f"Average number of moloks pr. route: {num_moloks / num_trucks} moloks/route \n"
-        final_string += f"Average time spent pr. route: {total_time / num_trucks} min/route \n"
-        final_string += f"Average load collected pr. route: {total_load / num_trucks} kg/route \n"
+        final_string += f"Trucks utilized: {trucks_utilized} \n"
+        final_string += f"Total time spent: {total_time} min \nTotal distance driven: {total_dist} km \nTotal load collected: {total_load} kg \n"
+        final_string += f"Average number of moloks pr. route: {num_moloks / trucks_utilized} moloks/route \n"
+        final_string += f"Average time spent pr. route: {total_time / trucks_utilized} min/route \n"
+        final_string += f"Average distance driven pr. route: {total_dist / trucks_utilized} km/route \n"
+        final_string += f"Average load collected pr. route: {total_load / trucks_utilized} kg/route \n"
 
         print(final_string)
 
@@ -380,6 +416,7 @@ class routePlanner:
         if self.metaheuristics == True:
             print("applying metaheuristics")
             search_parameters.local_search_metaheuristic = (self.local_search_strategy)
+
         search_parameters.time_limit.seconds = self.time_limit
 
         solution = self.routing.SolveWithParameters(search_parameters)
@@ -391,12 +428,32 @@ class routePlanner:
 
 if __name__ == "__main__":
 
-    depotArgs = [600, 2200, (45, 10)] # 6:00 to 22:00 o'clock and position is (lat, long)
-    molokArgs = [[(45, 11), (43.5, 10), (44, 11)], 10, [80, 90, 75], 500, [0.05, 0.04, 0.06]] # molokCoordinate list, emptying time cost in minutes, fillPct-list, molok capacity in kg, linear growth rates
-    truckArgs = [150, 2, 3000, 600, 1400] # range, number of trucks, truck capacity in kg, working from 6:00 to 14:00
+    num_trucks = 2
+    ttem = 5                                            # time to empty molok
+    num_moloks = 3
+    seed = 20
+    np.random.seed(seed=seed)
+    
+    molok_pos_list = [(45, 11), (43.5, 10), (44, 11)]
+    molok_fillpcts = [80, 90, 75]
+    avg_grs = [0.05, 0.04, 0.06]                        # avg growthrates
 
-    rp = routePlanner(depotArgs=depotArgs, molokAgrs=molokArgs, truckAgrs=truckArgs)
+    molok_pos_list_of_lists = sf.normal_distribution(45, 10, 0.1, num_moloks)
+    molok_pos_list = []
+    for pos in molok_pos_list_of_lists:
+        molok_pos_list.append(tuple(pos))
+
+    molok_fillpcts = np.random.normal(70, 7.5, num_moloks)
+    avg_grs = np.random.normal(0.05, 0.01, num_moloks)
+
+    depotArgs = [600, 2200, (45, 10)] # 6:00 to 22:00 o'clock and position is (lat, long)
+    molokArgs = [molok_pos_list, ttem, molok_fillpcts, 500, avg_grs] # molokCoordinate list, emptying time cost in minutes, fillPct-list, molok capacity in kg, linear growth rates
+    truckArgs = [150, num_trucks, 3000, 600, 1400] # range, number of trucks, truck capacity in kg, working from 6:00 to 14:00
+
+    rp = routePlanner(depotArgs=depotArgs, molokAgrs=molokArgs, truckAgrs=truckArgs, time_limit=1, first_solution_strategy='3', local_search_strategy='2')
     print(rp.data)
+    
+    # exit()
 
     solution = rp.main()
 
@@ -404,12 +461,17 @@ if __name__ == "__main__":
 
     routes = rp.get_routes(solution, rp.routing, rp.manager)
 
+    
+
     time_const = rp.routing.GetDimensionOrDie(rp.time_windows_constraint)
-    tws = rp.get_cumul_data(solution, rp.routing, dimension=time_const)
+    visit_times = rp.get_cumul_data(solution, rp.routing, dimension=time_const)
 
     capacity_const = rp.routing.GetDimensionOrDie(rp.capacity_constraint)
     truck_loads = rp.get_cumul_data(solution, rp.routing, capacity_const)
+    
+    distance_constraint = rp.routing.GetDimensionOrDie(rp.range_constraint)
+    truck_distances = rp.get_cumul_data(solution, rp.routing, distance_constraint)
 
-    rp.print_solution(routes, tws, truck_loads)
+    rp.print_solution(routes, visit_times, truck_loads, truck_distances)
 
-    print(rp.get_molok_empty_timestamps(routes, tws))
+    # print(rp.get_molok_empty_timestamps(routes, visit_times))
