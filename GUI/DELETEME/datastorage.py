@@ -29,7 +29,7 @@ class DataStorage:
         """
 
         # --- config vars ---
-        self.DB_NAME = "Server\MolokData.db" # fix stien senere
+        self.DB_NAME = "DELETEME\MolokData.db" # fix stien senere
         self.main_con = lite.connect(self.DB_NAME) # creates connection to DB from main thread
         self.main_cur = self.main_con.cursor() # creates cursor for main thread
 
