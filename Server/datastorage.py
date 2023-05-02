@@ -7,6 +7,10 @@ import pickle
 from scipy import stats
 import requests
 import json
+# from Algorithm.routePlanner import routePlanner as rP
+from routePlanner import routePlanner
+import support_functions as sf
+
 
 
 class DataStorage:
@@ -271,6 +275,28 @@ class DataStorage:
 
         return avg_growthrates
 
+    def set_fillpcts_to_0(self, routePlanner_data, route_start_time):
+        """
+        From routeplanner, when moloks are emptied from routes,
+        this function sets the filling procentage to 0 by updating the latest rows in the database. 
+        """
+        
+        for molok in routePlanner_data:
+            molok_id = molok[0]
+            timestamp = molok[1] + route_start_time
+            self.main_cur.execute(f"SELECT molokPos FROM '{self.table_name}' WHERE molokID = '{molok_id}'")
+            molokPos = self.main_cur.fetchone() # Getting molokPos. Returns None if empty
+            try: molokPos = molokPos[0] # molokPos is either None or ((),) , so this tries to get the inner tuple
+            except Exception as e:
+                pass
+
+            # writing sim msg to DB
+            self.main_cur.execute(f"INSERT INTO {self.table_name} (molokId, molokPos, fillPct, timestamp) VALUES (?,?,?,?)", (molok_id, str(molokPos), 0, timestamp))
+            self.main_con.commit()
+            
+
+
+
 
     def calc_fillpcts_from_MD(self, distance, molok_depth) -> float:
         """Calculates the fillpct from a measuring device based on measured distance and molok depth (both in cm)"""
@@ -361,6 +387,12 @@ class DataStorage:
             print(f"TimeoutError: {e}")
             print("Closing sim thread")
             return False
+
+        # If routePlanner has emptied moloks then call set_fillpcts_to_0
+        if routePlanner.get_molok_empty_timestamps() == True:
+            self.set_fillpcts_to_0() 
+
+
 
         # creates list of fillPcts to send to sim and creates list of latest timestamps by molokID
         last_fillpct_list = []
@@ -468,10 +500,41 @@ if __name__ == "__main__":
    
 
     myDS = DataStorage(69, 1000, ADDR=('127.0.0.1', 12445))
+    
+    num_trucks = 2
+    ttem = 5                                            # time to empty molok
+    num_moloks = 3
+    seed = 20
+    np.random.seed(seed=seed)
+
+    molok_pos_list_of_lists = sf.normal_distribution(45, 10, 0.1, num_moloks)
+    molok_pos_list = []
+    for pos in molok_pos_list_of_lists:
+        molok_pos_list.append(tuple(pos))
+
+    molok_fillpcts = np.random.normal(70, 7.5, num_moloks)
+    avg_grs = np.random.normal(0.05, 0.01, num_moloks)
+
+    depotArgs = [600, 2200, (45, 10)] # 6:00 to 22:00 o'clock and position is (lat, long)
+    molokArgs = [molok_pos_list, ttem, molok_fillpcts, 500, avg_grs] # molokCoordinate list, emptying time cost in minutes, fillPct-list, molok capacity in kg, linear growth rates
+    truckArgs = [150, num_trucks, 3000, 600, 1400] # range, number of trucks, truck capacity in kg, working from 6:00 to 14:00
+
+    rp = routePlanner(depotArgs=depotArgs, molokAgrs=molokArgs, truckAgrs=truckArgs, time_limit=1, first_solution_strategy='3', local_search_strategy='2')
+    print(rp.data)
+
+    solution = rp.main()
+    print(solution)
+    time_const = rp.routing.GetDimensionOrDie(rp.time_windows_constraint)
+    visit_times = rp.get_cumul_data(solution, rp.routing, dimension=time_const)
+    routes = rp.get_routes(solution, rp.routing, rp.manager)
+    emptying_list = rp.get_molok_empty_timestamps(routes, visit_times)
+    print(emptying_list)
+
+    print(myDS.set_fillpcts_to_0(emptying_list, 0))
 
     # print(myDS.log_sigfox_to_DB())
 
-    # print(myDS.show_table_by_tablename(myDS.table_name))
+    print(myDS.show_table_by_tablename(myDS.table_name))
 
     # reg_dict = myDS.lin_reg_sections()
     # print(reg_dict)
@@ -480,8 +543,9 @@ if __name__ == "__main__":
     # print(avg_a)
     # print(len(avg_a))
 
-    testOfSimThread(myDS)
-
+    # testOfSimThread(myDS)
+    # data= [[0, 200],[1, 340],[3, 401]]
+    # print(myDS.set_fillpcts_to_0(routePlanner_data=data))
 
     """Outcomment if you want to test"""
     # print(f"showing all table names in DB: {myDS.getTableNames()}")
@@ -498,8 +562,8 @@ if __name__ == "__main__":
 
     # print(type(myDS.fetchDataByMolokId(myDS.TableName, 2)[0][4]))
 
-    # print(myDS.fetchColumn(myDS.TableName, 'fillPct'))
+    # print(myDS.fetch_Column(myDS.tableName, 'fillPct'))
 
-    # print(myDS.fetchLatestRows(myDS.TableName, "main"))
+    # print(myDS.fetch_latest_rows(myDS.table_name, "main"))
 
-    # print(myDS.contactSim())   
+    # print(myDS.contactSim())  
