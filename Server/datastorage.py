@@ -7,9 +7,8 @@ import pickle
 from scipy import stats
 import requests
 import json
-# from Algorithm.routePlanner import routePlanner as rP
-from routePlanner import routePlanner
-import support_functions as sf
+
+
 
 
 
@@ -388,11 +387,6 @@ class DataStorage:
             print("Closing sim thread")
             return False
 
-        # If routePlanner has emptied moloks then call set_fillpcts_to_0
-        if routePlanner.get_molok_empty_timestamps() == True:
-            self.set_fillpcts_to_0() 
-
-
 
         # creates list of fillPcts to send to sim and creates list of latest timestamps by molokID
         last_fillpct_list = []
@@ -501,34 +495,7 @@ if __name__ == "__main__":
 
     myDS = DataStorage(69, 1000, ADDR=('127.0.0.1', 12445))
     
-    num_trucks = 2
-    ttem = 5                                            # time to empty molok
-    num_moloks = 3
-    seed = 20
-    np.random.seed(seed=seed)
-
-    molok_pos_list_of_lists = sf.normal_distribution(45, 10, 0.1, num_moloks)
-    molok_pos_list = []
-    for pos in molok_pos_list_of_lists:
-        molok_pos_list.append(tuple(pos))
-
-    molok_fillpcts = np.random.normal(70, 7.5, num_moloks)
-    avg_grs = np.random.normal(0.05, 0.01, num_moloks)
-
-    depotArgs = [600, 2200, (45, 10)] # 6:00 to 22:00 o'clock and position is (lat, long)
-    molokArgs = [molok_pos_list, ttem, molok_fillpcts, 500, avg_grs] # molokCoordinate list, emptying time cost in minutes, fillPct-list, molok capacity in kg, linear growth rates
-    truckArgs = [150, num_trucks, 3000, 600, 1400] # range, number of trucks, truck capacity in kg, working from 6:00 to 14:00
-
-    rp = routePlanner(depotArgs=depotArgs, molokAgrs=molokArgs, truckAgrs=truckArgs, time_limit=1, first_solution_strategy='3', local_search_strategy='2')
-    print(rp.data)
-
-    solution = rp.main()
-    print(solution)
-    time_const = rp.routing.GetDimensionOrDie(rp.time_windows_constraint)
-    visit_times = rp.get_cumul_data(solution, rp.routing, dimension=time_const)
-    routes = rp.get_routes(solution, rp.routing, rp.manager)
-    emptying_list = rp.get_molok_empty_timestamps(routes, visit_times)
-    print(emptying_list)
+    emptying_list = [(0,204), (3, 464), (1, 384)]
 
     print(myDS.set_fillpcts_to_0(emptying_list, 0))
 
@@ -566,4 +533,4 @@ if __name__ == "__main__":
 
     # print(myDS.fetch_latest_rows(myDS.table_name, "main"))
 
-    # print(myDS.contactSim())  
+    # print(myDS.contactSim())   
