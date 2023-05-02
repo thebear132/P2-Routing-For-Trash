@@ -467,7 +467,7 @@ if __name__ == "__main__":
             print(myDS.show_table_by_tablename(myDS.table_name))
    
 
-    myDS = DataStorage(69, 1000, ADDR=('127.0.0.1', 12445))
+    myDS = DataStorage(12, 1000, ADDR=('192.168.137.83', 12445))
 
     # print(myDS.log_sigfox_to_DB())
 
