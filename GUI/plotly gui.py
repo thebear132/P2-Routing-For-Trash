@@ -1,63 +1,60 @@
 import plotly.express as px
 import plotly.graph_objects as go
-import sqlite3
 import pandas as pd
-import json
-
+import numpy as np
 
 from DELETEME.datastorage import DataStorage
 myDS = DataStorage(69, 1000, ADDR=('127.0.0.1', 12445))
-DS_last_rows = myDS.fetch_latest_rows(myDS.table_name, "main")
-
-molok_id=[]; lon=[]; lat=[]; fill_pct=[]; timestamp=[]
-for i in DS_last_rows:
-    molok_id.append(i[1])
-    fill_pct.append(i[3])
-    timestamp.append(i[4])
-
-    coords = json.loads(i[2].replace(' ',',', 1))
-    lon.append(coords[0])
-    lat.append(coords[1])
-
-    #print(molok_id, lon, lat, fill_pct, timestamp)
+latest_rows = myDS.fetch_latest_rows(myDS.table_name, "main")
 
 
-df = pd.DataFrame(DS_last_rows)
-df.columns = ["maxID", "MolokID", "Coords", "Fill_pct", "Timestamp"]
+df = pd.DataFrame(latest_rows[:3])
+df.columns = ["maxID", "MolokID", "Coords", "Fill_pct", "Timestamp"]        # Set names of columns
 
-
-#print("Test shit")
+# Remove the Coords[] column and split it into lon and lat, then place into their own columns
 y = df['Coords'].str.replace(' ', ',', 1).str.strip('[ ]')
 df[['lat', 'lon']] = y.str.split(',', expand=True)
-df = df.drop(columns=["Coords"])
+df = df.drop(columns=["Coords"])    # Remove Coords column (useless now)
+
+# Convert column data from string to float or int
+df = df.astype('float')
+df["MolokID"] = df["MolokID"].astype('int')
+
 print(df)
 
-exit(0)
 
-fig = px.scatter_mapbox(myDS,
-                        lon=df[lon], 
-                        lat=lat,
-                        hover_data = molok_id,
+fig = px.scatter_mapbox(df,
+                        title='Route planner',
                         zoom=10, #Starts zoom
-                        color=fill_pct,
-                        color_continuous_scale=px.colors.diverging.RdYlGn_r,
-                        width=1200, height=900, 
-                        title='Car share scatter map',
+                        range_color=[0,120],
+                        color_continuous_scale=px.colors.sequential.Blackbody_r,
+                        width=1200, height=900,
+                        size=[1 for i in range(len(df["lon"]))],
+                        opacity=1,
+                        size_max=20,
+                        hover_name="Molok:" + df["MolokID"].astype(str),
+                        color="Fill_pct",
+                        lon="lon",
+                        lat="lat"
                         )
 
 
-fig.update_layout(mapbox_style="open-street-map")
-#fig.update_layout(margin={"r":0,"t":50,'l':50, 'b':50})
-fig.update_layout(
-    margin ={'l':0,'t':0,'b':0,'r':0},)
+#fig.update_traces()
 
 
+
+
+#Setting for the maps 
+fig.update_layout(mapbox_style="open-street-map", margin ={'l':0,'t':0,'b':50,'r':0})
+
+
+# Line for one route 
 fig.add_trace(go.Scattermapbox(
     mode = "lines",
     hoverinfo= "skip",
-    lon = lon,
-    lat = lat,
-    line = dict(width = 1, color = 'blue'),
+    lon = df["lon"],
+    lat = df["lat"],
+    line = dict(width = 3, color = 'blue'),
     opacity = 0.5))
 
 fig.show()
