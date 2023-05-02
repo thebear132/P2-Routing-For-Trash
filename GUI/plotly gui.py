@@ -3,10 +3,6 @@ import plotly.graph_objects as go
 import sqlite3
 import pandas as pd
 
-from DELETEME.datastorage import DataStorage
-myDS = DataStorage(69, 1000, ADDR=('127.0.0.1', 12445))
-print(myDS.fetch_latest_rows(myDS.table_name, "main"))
-
 
 print("Getting data...")
 df = px.data.carshare()
