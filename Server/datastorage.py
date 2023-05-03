@@ -8,9 +8,9 @@ from scipy import stats
 import requests
 import json
 # from Algorithm.routePlanner import routePlanner as rP
-from Algorithm.routePlanner import routePlanner
+from Algorithm.routePlanner import RoutePlanner
 
-print(routePlanner.main())
+print(RoutePlanner.main())
 
 class DataStorage:
     """
@@ -280,14 +280,14 @@ class DataStorage:
         this function sets the filling procentage to 0 by updating the latest rows in the database. 
         """
         
-        solution = routePlanner.main()
-        routes = routePlanner.get_routes(solution, routePlanner.routing, routePlanner.manager)
+        solution = RoutePlanner.main()
+        routes = RoutePlanner.get_routes(solution, RoutePlanner.routing, RoutePlanner.manager)
 
-        time_const = routePlanner.routing.GetDimensionOrDie(routePlanner.time_windows_constraint)
-        visit_times = routePlanner.get_cumul_data(solution, routePlanner.routing, dimension=time_const)
+        time_const = RoutePlanner.routing.GetDimensionOrDie(RoutePlanner.time_windows_constraint)
+        visit_times = RoutePlanner.get_cumul_data(solution, RoutePlanner.routing, dimension=time_const)
 
 
-        routePlanner_data = routePlanner.get_molok_empty_timestamps(routes, visit_times)
+        routePlanner_data = RoutePlanner.get_molok_empty_timestamps(routes, visit_times)
 
         last_row = self.fetch_latest_rows(self.table_name, "sim")
         
@@ -395,7 +395,7 @@ class DataStorage:
             return False
 
         # If routePlanner has emptied moloks then call set_fillpcts_to_0
-        if routePlanner.get_molok_empty_timestamps() == True:
+        if RoutePlanner.get_molok_empty_timestamps() == True:
             self.set_fillpcts_to_0() 
 
 

@@ -8,7 +8,7 @@ from scipy import stats
 import requests
 import json
 # from Algorithm.routePlanner import routePlanner as rP
-from routePlanner import routePlanner
+from routePlanner import RoutePlanner
 import support_functions as sf
 
 
@@ -389,7 +389,7 @@ class DataStorage:
             return False
 
         # If routePlanner has emptied moloks then call set_fillpcts_to_0
-        if routePlanner.get_molok_empty_timestamps() == True:
+        if RoutePlanner.get_molok_empty_timestamps() == True:
             self.set_fillpcts_to_0() 
 
 
@@ -519,7 +519,7 @@ if __name__ == "__main__":
     molokArgs = [molok_pos_list, ttem, molok_fillpcts, 500, avg_grs] # molokCoordinate list, emptying time cost in minutes, fillPct-list, molok capacity in kg, linear growth rates
     truckArgs = [150, num_trucks, 3000, 600, 1400] # range, number of trucks, truck capacity in kg, working from 6:00 to 14:00
 
-    rp = routePlanner(depotArgs=depotArgs, molokAgrs=molokArgs, truckAgrs=truckArgs, time_limit=1, first_solution_strategy='3', local_search_strategy='2')
+    rp = RoutePlanner(depotArgs=depotArgs, molokAgrs=molokArgs, truckAgrs=truckArgs, time_limit=1, first_solution_strategy='3', local_search_strategy='2')
     print(rp.data)
 
     solution = rp.main()

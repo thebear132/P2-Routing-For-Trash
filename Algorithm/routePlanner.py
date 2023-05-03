@@ -9,14 +9,14 @@ If they were not enough, read the entire routing section on the page from top to
 TO-TEST:
  - add the solver - tror det er gjort nu. kræver testing. Opstil tests
  - add method for getting timestamps for moloks when they are cannonically emptied - tror det er gjort nu. Valider med DS
+ - slack og molok drop skal justeres
 
 TO-DO:
- - add molok drop to master
-    - brug kun hvis slack er løbet over
-    - sæt ID fikser ud som metode
-    - giv return statement
+ - add init solution to routePlanner
+ - add time to master
 
- - add tw slack to masters
+ 
+ - overvej at molokker bliver mere fyldte i løbet af dagen.
 
 REQUIREMENTS YET TO FULLFILL:
  - {C3:} The route planner must be able to produce routes in time for the drivers to use them
@@ -101,7 +101,7 @@ class MasterPlanner:
         self.first_solution_strat = first_solution_strategy
         self.local_search_strat = local_search_strategy
         self.try_num = 1                                    # counts amount of routePlanner tries
-        self.goal_tries = 3                                 # goal for 'self.try_num' to be incremented to
+        self.goal_tries = 10                                # goal for 'self.try_num' to be incremented to
         self.current_best = {                               # save current best solution to dictionary
             "routes": [],
             "visit_times": [],
@@ -110,15 +110,20 @@ class MasterPlanner:
         }
         self.rp = None
 
+        # --- control vars ---
         self.moloks_dropped = 0
         self.molok_ids = list(range(len(self.fill_pcts)))   # list of all true molok IDs
         self.molok_id_mapping = {}                          # true molokIDs as keys, OR-Tools ref. as value
         for i in range(len(self.fill_pcts)):
             self.molok_id_mapping[i] = i + 1                # initially, all IDs are shifted + 1 due to depot = 0 in OR
 
-        self.actions_taken = []                             # append action if moloks are dropped or slack is added                              
+        self.actions_taken = []                             # append action if moloks are dropped or slack is added
 
+        self.added_slack = 0                                # slack added to time windows (in minutes)
+        self.slack_increment = 10                           # amount to increment slack by each time (in minutes)
+        self.slack_max = 3 * self.slack_increment           # max slack. If reached, drop a molok
 
+    # --- internal methods ---
     def add_action(self, action_type: str, value):
         """
         create action list for drop-action: [try_num, 'drop', (molok_id, molok_pos, fill_pct, est_gr)] \n
@@ -127,6 +132,23 @@ class MasterPlanner:
         action = [self.try_num, action_type, value]
         return action
     
+    def update_routes(self, routes):
+            
+        id_mapping = self.molok_id_mapping.items()
+
+        for route in routes:
+            route[0] = 'depot'
+            route[-1] = 'depot'
+
+            for i, node in enumerate(route[1:-1], start=1): # only loop over routes that contain moloks
+                for true_ID, OR_ref in id_mapping:          # loop over items in molok_id_mapping dict
+                    if OR_ref == node:                      # if OR ref is same as node(OR ref), true ID is put in
+                        print(f"switching OR ref {node} with true ID {true_ID}")
+                        route[i] = true_ID
+                        break       # moloks are only visited once, so break out of loop when found.
+
+        return routes
+
     
     def showcase_stats(self):
         """returns all attributes of object of class 'MasterPlanner'"""
@@ -167,20 +189,34 @@ class MasterPlanner:
         for i, key in enumerate(self.molok_id_mapping):
             self.molok_id_mapping[key] = i + 1
 
-        pass
+    def add_slack_to_tw(self):
+        """Adds slack to time windows, allowing moloks to be overfilled if no solution exists. This might help the
+        RoutePlanner actually create routes. If added_slack reaches slack_max, a molok should be droppen instead of
+        adding more slack. Slack is then reset"""
+        drop_molok = False
 
+        if self.added_slack >= self.slack_max:          # if max slack reached/exceeded, reset slack and drop a molok
+            drop_molok = True
+            self.added_slack = 0
+            return drop_molok
+        
+        self.added_slack += self.slack_increment        # increment slack
+        action = self.add_action('slack', self.added_slack)
+        self.actions_taken.append(action)
+        print(f"Adding slack to time windows. \nMax slack: {self.slack_max} \nCurrent slack added: {self.added_slack}")
 
-    def determine_tw_slack(self):
-        pass
+        return drop_molok
+
+        
     
     def prep_rp(self):
         """prepares the data model and instantiates routePlanner object"""
         depot_args = [self.depot_open, self.depot_close, self.depot_pos]
-        molok_args = [self.molok_pos_list, self.tte_molok, self.fill_pcts, self.molok_capacity, self.molok_est_gr]
+        molok_args = [self.molok_pos_list, self.tte_molok, self.fill_pcts, self.molok_capacity, self.molok_est_gr, self.added_slack]
         truck_args = [self.truck_range, self.num_trucks, self.truck_capacity, self.work_start, self.work_stop]
         time_per_try = int(self.time_limit / self.goal_tries) # calculate timelimit for each try in seconds
 
-        self.rp = routePlanner(depot_args, molok_args, truck_args, time_per_try,
+        self.rp = RoutePlanner(depot_args, molok_args, truck_args, time_per_try,
                     first_solution_strategy=self.first_solution_strat, local_search_strategy=self.local_search_strat)
         
         return True
@@ -208,7 +244,6 @@ class MasterPlanner:
 
         return solver_status, routes, visit_times, truck_loads, truck_distances
 
-
     def master(self):
         """
         controls routePlanner
@@ -216,10 +251,6 @@ class MasterPlanner:
         while self.try_num <= self.goal_tries:
 
             print(f"\n---------- gen {self.try_num} of {self.goal_tries} ----------")
-
-            
-            # ADD UPDATE TO ATTRIBUTES BEFORE PREP OF RP HERE!!!
-
 
             success = self.prep_rp()
             if success:
@@ -232,41 +263,25 @@ class MasterPlanner:
             if solver_status != 1:                          # check if solution exists
                 print(f"\nNo solution found. Taking nescessary actions. beep boop, Bobby\n")
 
-                # take action if no solution found (2)
-                if solver_status == 2:
-                    pass
-
-                # take action if timeout (3)
-                elif solver_status == 3:
-                    self.drop_molok()
-                    pass
-                
                 # take action if invalid model (4). Will end route planning and user will have to restart with new model
-                elif solver_status == 4:
+                if solver_status == 4:
                     raise Exception("""Data model invalid. Check if inputs contain non-positive numbers. Could also be that distances are too great for the range of the trucks or similar impossibilities""")
-                
+
+                # take action if no solution found (2) or if timeout (3)
+                # always start by adding slack. if max slack reached, a molok will be dropped from route
+                drop_molok = self.add_slack_to_tw()
+
+                if drop_molok:
+                    self.drop_molok()
 
                 self.try_num += 1     # after action is taken, increment and continue to next try
                 continue                                    
 
 
 
-            if self.moloks_dropped > 0:                     # only use when routes are presented at end
-                id_mapping = self.molok_id_mapping.items()
-
-                for route in routes:
-                    route[0] = 'depot'
-                    route[-1] = 'depot'
-
-                    for i, node in enumerate(route[1:-1], start=1): # only loop over routes that contain moloks
-                        for true_ID, OR_ref in id_mapping:          # loop over items in molok_id_mapping dict
-                            if OR_ref == node:                      # if OR ref is same as node(OR ref), true ID is put in
-                                print(f"switching OR ref {node} with true ID {true_ID}")
-                                route[i] = true_ID
-                                break       # moloks are only visited once, so break out of loop when found.
+            if self.try_num == self.goal_tries and self.moloks_dropped > 0:     # only use when routes are presented at end
+                routes = self.update_routes(routes)
                         
-
-            print(f"managed to find routes: {routes}")
             # only reached if solver_status == 1
             self.current_best['routes'] = routes
             self.current_best['visit_times'] = visit_times
@@ -275,14 +290,21 @@ class MasterPlanner:
 
             self.rp.print_solution(routes, visit_times, truck_loads, truck_distances)
 
+            print(self.rp.data)
+
+            print(f"actions taken: {self.actions_taken}")
+
+            print(f"current_best routes: {self.current_best}")
+
+            self.added_slack/2                      # slack is halved if route is found
             self.try_num += 1                       # increment count
 
 
 
-class routePlanner:
+class RoutePlanner:
 
     def __init__(self, depotArgs: list = ["int(openTime)", "int(closeTime)", "tuple(lat, long)"],
-                 molokAgrs: list = ["list[molokPositions]", "int(emptying time)", "list[fillPcts]", "int(molokCapacity(kg))", "list[estimatedLinearGrowthrates]"],
+                 molokAgrs: list = ["list[molokPositions]", "int(emptying time)", "list[fillPcts]", "int(molokCapacity(kg))", "list[estimatedLinearGrowthrates]", "int(slack)"],
                  truckAgrs: list = ["int(range(km))", "int(numTrucks)", "int(capacity(kg))", "int(workStart)", "int(workStop)"],
                  time_limit: int = 60,
                  first_solution_strategy: str = "2",
@@ -324,7 +346,7 @@ class routePlanner:
             self.metaheuristics = True
 
 
-        self.data = self.createDataModel(depotArgs, molokAgrs, truckAgrs)
+        self.data = self.create_data_model(depotArgs, molokAgrs, truckAgrs)
         
         # create the routing index manager
         self.manager = self.createManager()
@@ -394,7 +416,7 @@ class routePlanner:
  
         return time_matrix, distance_matrix
 
-    def createDataModel(self, depotArgs, molokArgs, truckArgs) -> dict:
+    def create_data_model(self, depotArgs, molokArgs, truckArgs) -> dict:
         """Stores the data for the problem."""
         data = {}
 
@@ -417,7 +439,7 @@ class routePlanner:
 
         # calc time windows based on fillPct and lin. growthrate f(x)=ax+b from lin. reg.
         data['timeWindows'] = [[0, int(data['depotClose'] - data['depotOpen'])]] # first index is depot TW
-        molok_TWs = sf.molokTimeWindows(fillPcts=molokArgs[2], estGrowthrates=molokArgs[4])
+        molok_TWs = sf.molokTimeWindows(fillPcts=molokArgs[2], estGrowthrates=molokArgs[4], slack=molokArgs[5])
         for tw in molok_TWs:
             data['timeWindows'].append(tw)
 

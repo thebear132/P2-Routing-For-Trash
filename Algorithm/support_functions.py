@@ -117,16 +117,17 @@ def create_distance_matrix(num_moloks:int, coords_array, dtype=np.int64, decimal
     
     return distance_matrix
 
-def molokTimeWindows(fillPcts, estGrowthrates):
+def molokTimeWindows(fillPcts, estGrowthrates, slack: int):
     """returns list of list of molok time windows to be used in the route planner. they are calculated on a minute basis on form [0, n].
-     0 being the 0th minute from starting the route and n being the minute that the molok reaches 100% fill"""
+     0 being the 0th minute from starting the route and n being the minute that the molok reaches 100% fill.
+     Adding slack will allow moloks to be overfilled by 'slack' minutes"""
 
     TWs = [0] * len(fillPcts) # time windows list
     
      # solve for x: 100 = a*x + b -> x = (100-b)/a
      # a = growthrate, b= fillPct, and x is minutes
     for i in range(len(fillPcts)):
-        x = (100 - fillPcts[i])/estGrowthrates[i]
+        x = (100 - fillPcts[i])/estGrowthrates[i] + slack
         TWs[i] = [0, int(x)]
 
     return TWs
@@ -151,5 +152,5 @@ if __name__ == '__main__':
     fillPcts = [80, 86, 87, 82]
     growthRates = [0.05, 0.04, 0.035, 0.02]
 
-    print(molokTimeWindows(fillPcts, growthRates))
+    print(molokTimeWindows(fillPcts, growthRates, 30))
     
