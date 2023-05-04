@@ -9,21 +9,21 @@ If they were not enough, read the entire routing section on the page from top to
 TO-TEST:
  - add the solver - tror det er gjort nu. kræver testing. Opstil tests
  - add method for getting timestamps for moloks when they are cannonically emptied - tror det er gjort nu. Valider med DS
- - slack og molok drop skal justeres
+ - slack og molok drop skal evt. justeres
+ - max tries skal evt justeres
+ - test cases where best routes might change (dunno how tho)
 
 TO-DO:
- - add init solution to routePlanner
- - add time to master
+
+ - skal kunne:
+    - returnere bedste ruter til sidst                              DONE
+    - returnere hvilke molokker der blev tømt og hvornår            DONE
+    - returnere hvilke molokker der blev droppet                    DONE
+    - hvor meget slack der var og om der evt. var overfyldninger    (snak i gruppen)
 
  
- - overvej at molokker bliver mere fyldte i løbet af dagen.
-
-REQUIREMENTS YET TO FULLFILL:
- - {C3:} The route planner must be able to produce routes in time for the drivers to use them
-
- - {C5:} The route planner must save the current best set of routes
-
- - {C6:} The route planner must take working hours of garbage men into consideration and try to make the routes take similar amounts of time - SVÆR
+ - overvej at molokker bliver mere fyldte i løbet af dagen - hvorfor kan vi ikke løse det? hvad ville det kræve?
+ - overvej at man ikke kan tilpasse ruter så de er lige lange - vi kan i hvert fald ikke finde ud af det.
 """
 
 import numpy as np
@@ -97,10 +97,9 @@ class MasterPlanner:
         self.work_stop = work_stop 
 
         # --- master planner vars ---
-        self.time_limit = time_limit_seconds
         self.first_solution_strat = first_solution_strategy
         self.local_search_strat = local_search_strategy
-        self.try_num = 1                                    # counts amount of routePlanner tries
+        self.try_num = 1                                    # counts amount of RoutePlanner tries
         self.goal_tries = 10                                # goal for 'self.try_num' to be incremented to
         self.current_best = {                               # save current best solution to dictionary
             "routes": [],
@@ -122,6 +121,11 @@ class MasterPlanner:
         self.added_slack = 0                                # slack added to time windows (in minutes)
         self.slack_increment = 10                           # amount to increment slack by each time (in minutes)
         self.slack_max = 3 * self.slack_increment           # max slack. If reached, drop a molok
+
+        # --- time vars ---
+        self.time_limit = time_limit_seconds                # seconds for MasterPlanner to try to optimize routes
+        self.max_time = time.time() + self.time_limit       # epoch time when MP must be done
+
 
     # --- internal methods ---
     def add_action(self, action_type: str, value):
@@ -149,7 +153,6 @@ class MasterPlanner:
 
         return routes
 
-    
     def showcase_stats(self):
         """returns all attributes of object of class 'MasterPlanner'"""
         pass
@@ -207,17 +210,34 @@ class MasterPlanner:
 
         return drop_molok
 
-        
-    
     def prep_rp(self):
         """prepares the data model and instantiates routePlanner object"""
         depot_args = [self.depot_open, self.depot_close, self.depot_pos]
         molok_args = [self.molok_pos_list, self.tte_molok, self.fill_pcts, self.molok_capacity, self.molok_est_gr, self.added_slack]
         truck_args = [self.truck_range, self.num_trucks, self.truck_capacity, self.work_start, self.work_stop]
-        time_per_try = int(self.time_limit / self.goal_tries) # calculate timelimit for each try in seconds
 
-        self.rp = RoutePlanner(depot_args, molok_args, truck_args, time_per_try,
-                    first_solution_strategy=self.first_solution_strat, local_search_strategy=self.local_search_strat)
+        current_time = time.time()
+        time_left = self.max_time - current_time
+        tries_left = self.goal_tries - (self.try_num - 1)         
+        timelimit_for_curr_try = int(time_left / tries_left)   # calculate timelimit for current try in seconds
+        print(f"time for current try: {timelimit_for_curr_try} s")
+
+        initial_routes = None
+
+        # if there exists a solution already, pass it to the route planner
+        if self.current_best['routes']:
+
+            # remove depot(index 0) from routes or OR-Tools will return None from initial routes
+            initial_routes = []                         
+            for route in self.current_best['routes']:
+                route.pop(0)        # remove depot at start of route
+                route.pop(-1)       # remove depot at end of route
+                initial_routes.append(route)
+            print("Passing current best routes into route planner")
+
+        self.rp = RoutePlanner(depot_args, molok_args, truck_args, timelimit_for_curr_try,
+                    first_solution_strategy=self.first_solution_strat, local_search_strategy=self.local_search_strat,
+                    initial_routes=initial_routes)
         
         return True
 
@@ -273,14 +293,21 @@ class MasterPlanner:
 
                 if drop_molok:
                     self.drop_molok()
+                    print("slack reset to 0")
 
                 self.try_num += 1     # after action is taken, increment and continue to next try
                 continue                                    
 
 
 
-            if self.try_num == self.goal_tries and self.moloks_dropped > 0:     # only use when routes are presented at end
+            if self.try_num == self.goal_tries:     # only use when routes are presented at end
                 routes = self.update_routes(routes)
+                self.empty_molok_times = self.rp.get_molok_empty_timestamps(routes, visit_times)
+
+                print(f"empty time of moloks: {self.empty_molok_times}")
+            
+            action = self.add_action('routes found', None)
+            self.actions_taken.append(action)
                         
             # only reached if solver_status == 1
             self.current_best['routes'] = routes
@@ -288,13 +315,13 @@ class MasterPlanner:
             self.current_best['truck_loads'] = truck_loads
             self.current_best['truck_distances'] = truck_distances
 
-            self.rp.print_solution(routes, visit_times, truck_loads, truck_distances)
+            self.rp.print_solution(self.current_best['routes'], self.current_best['visit_times'], self.current_best['truck_loads'], self.current_best['truck_distances'])
 
             print(self.rp.data)
 
             print(f"actions taken: {self.actions_taken}")
 
-            print(f"current_best routes: {self.current_best}")
+            # print(f"current_best routes: {self.current_best}")
 
             self.added_slack/2                      # slack is halved if route is found
             self.try_num += 1                       # increment count
@@ -308,7 +335,8 @@ class RoutePlanner:
                  truckAgrs: list = ["int(range(km))", "int(numTrucks)", "int(capacity(kg))", "int(workStart)", "int(workStop)"],
                  time_limit: int = 60,
                  first_solution_strategy: str = "2",
-                 local_search_strategy: str = "") -> None:
+                 local_search_strategy: str = "",
+                 initial_routes = None) -> None:
         """
         Executed when initializing a routePlanner-object
 
@@ -346,7 +374,7 @@ class RoutePlanner:
             self.metaheuristics = True
 
 
-        self.data = self.create_data_model(depotArgs, molokAgrs, truckAgrs)
+        self.data = self.create_data_model(depotArgs, molokAgrs, truckAgrs, initial_routes)
         
         # create the routing index manager
         self.manager = self.createManager()
@@ -416,7 +444,7 @@ class RoutePlanner:
  
         return time_matrix, distance_matrix
 
-    def create_data_model(self, depotArgs, molokArgs, truckArgs) -> dict:
+    def create_data_model(self, depotArgs, molokArgs, truckArgs, initial_routes) -> dict:
         """Stores the data for the problem."""
         data = {}
 
@@ -450,6 +478,8 @@ class RoutePlanner:
         data['truckWorkStart'] = truckArgs[3]
         data['truckWorkStop'] = truckArgs[4]
         data['time_matrix'], data['distance_matrix'] = self.time_and_dist_matrices(data['depotPos'], data['molokPositions'], data["molokEmptyTime"])
+
+        data['initial_routes'] = initial_routes
 
         return data
     
@@ -611,8 +641,8 @@ class RoutePlanner:
             zipped_route = list(zip(routes[route_num], visit_times[route_num]))
 
             for pair in zipped_route:
-                if pair[0] != 0:                            # only continue of node index not equal to depot
-                    true_molok_ID = pair[0] - 1             # All molok IDs begin from 1, since 0 is reserved for depot. subtract 1 to match DataStorage
+                if pair[0] != 0 and pair[0] != 'depot':      # only continue of node index not equal to depot
+                    true_molok_ID = pair[0]                 # All molok IDs begin from 1, since 0 is reserved for depot. subtract 1 to match DataStorage
                     empty_time_mins = pair[1]
                     empty_time_secs = empty_time_mins * 60  # Time in seconds since truck started driving and it stopped to empty molok
                     molok_IDs_and_empty_time.append((true_molok_ID, empty_time_secs))
@@ -689,10 +719,23 @@ class RoutePlanner:
 
         search_parameters.time_limit.seconds = self.time_limit
 
-        solution = self.routing.SolveWithParameters(search_parameters)
+        # If initial routes exist, solve from that standpoint
+        if self.data['initial_routes'] != None:
+            # According to the OR-Tools tutorial, when an initial solution is given, the model will be closed with the 
+            # default search parameters unless it is closed with the custom search parameters.
+            self.routing.CloseModelWithParameters(search_parameters)
+            initial_solution = self.routing.ReadAssignmentFromRoutes(self.data['initial_routes'], True)
 
-        solver_status = self.routing.status()
-        print("Solver status: ", solver_status)
+            solution = self.routing.SolveFromAssignmentWithParameters(initial_solution, search_parameters)
+            solver_status = self.routing.status()
+            print("Solver status: ", solver_status)
+
+        # if no initial routes are passed in, solve from the ground up.
+        else:
+            solution = self.routing.SolveWithParameters(search_parameters)
+
+            solver_status = self.routing.status()
+            print("Solver status: ", solver_status)
 
         return solver_status, solution
 
@@ -704,9 +747,9 @@ if __name__ == "__main__":
     num_moloks = 3
     truck_range = 15
     truck_capacity = 3000
-    timelimit = 60
-    first_solution_strategy = "2"
-    local_search_strategy = ""
+    timelimit = 20
+    first_solution_strategy = "3"
+    local_search_strategy = "3"
     seed = 20
     np.random.seed(seed=seed)
     
@@ -720,12 +763,17 @@ if __name__ == "__main__":
         molok_pos_list.append(tuple(pos))
 
     molok_fillpcts = np.random.normal(70, 7.5, num_moloks)
-    avg_grs = np.random.normal(0.05, 0.01, num_moloks)
+    avg_grs = np.random.normal(0.1, 0.01, num_moloks)
 
     mp = MasterPlanner(600, 2200, (45, 10), molok_pos_list, ttem, molok_fillpcts.tolist(), 500, avg_grs.tolist(), truck_range, num_trucks,
                        truck_capacity, 600, 1400, timelimit, first_solution_strategy, local_search_strategy)
 
     
     mp.master()
+
+    stop_time =time.time()
+
+    time_diff = mp.max_time - stop_time
+    print(time_diff)
 
     exit()
