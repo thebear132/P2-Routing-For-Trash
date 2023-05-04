@@ -37,25 +37,73 @@ fig = px.scatter_mapbox(df,
                         lon="lon",
                         lat="lat"
                         )
-
-
-#fig.update_traces()
-
-
-
-
 #Setting for the maps 
 fig.update_layout(mapbox_style="open-street-map", margin ={'l':0,'t':0,'b':50,'r':0})
 
 
-# Line for one route 
-fig.add_trace(go.Scattermapbox(
-    mode = "lines",
-    hoverinfo= "skip",
-    lon = df["lon"],
-    lat = df["lat"],
-    line = dict(width = 3, color = 'blue'),
-    opacity = 0.5))
 
-fig.show()
-print("plot complete")
+# TODO1
+#Lav en "plot rute" knap
+#Tegn ruterne ved at tegne linjer 
+
+# # Line for one route 
+# fig.add_trace(go.Scattermapbox(
+#     mode = "lines",
+#     hoverinfo= "skip",
+#     lon = df["lon"],
+#     lat = df["lat"],
+#     line = dict(width = 3, color = 'blue'),
+#     opacity = 0.5))
+
+
+
+
+# TODO2
+# Start en simulation (start Simulation.py og dataStorage.py og få data)
+# Plot molokkerne igen med deres nye fill_pct's (de burde være gået op nu)
+
+
+
+
+
+
+
+
+
+from dash import Dash, dcc, html
+from dash.dependencies import Input, Output
+app = Dash(__name__)
+
+"""
+ALLOWED_TYPES = (
+    "text", "number", "password", "email", "search",
+    "tel", "url", "range", "hidden",
+)
+
+app.layout = html.Div(
+    [
+        dcc.Input(
+            id="input_{}".format(_),
+            type=_,
+            placeholder="input type {}".format(_),
+        )
+        for _ in ALLOWED_TYPES
+    ]
+    + [html.Div(id="out-all-types")]
+)
+
+
+@app.callback(
+    Output("out-all-types", "children"),
+    [Input("input_{}".format(_), "value") for _ in ALLOWED_TYPES],
+)
+def cb_render(*vals):
+    return " | ".join((str(val) for val in vals if val))
+"""
+
+if __name__ == "__main__":
+    app.run_server(debug=True)
+    from time import sleep
+    sleep(10)
+
+#fig.show()
