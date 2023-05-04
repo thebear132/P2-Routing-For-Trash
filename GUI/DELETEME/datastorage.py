@@ -7,6 +7,7 @@ import pickle
 from scipy import stats
 import requests
 import json
+import psutil
 
 
 class DataStorage:
@@ -49,7 +50,11 @@ class DataStorage:
             self.END_MSG = "stop"
             self.UDP_recv_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) # IPv4, UDP
 
+            print("port",self.sim_ADDR)
+            print(psutil.net_connections())
             self.UDP_recv_socket.bind(("", self.sim_ADDR[1])) # UDP server sock for receiving from sim
+            print(psutil.net_connections())
+            
 
             # IPAddr=socket.gethostbyname(socket.gethostname())
             # print(f"My IP is : {IPAddr}")
