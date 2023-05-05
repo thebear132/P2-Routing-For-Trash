@@ -27,33 +27,28 @@ class DataStorage:
         1. with TABLE_NAME as "" (empty string) -> creates new TABLE in DB based on config vars
         2. with TABLE_NAME as "XYZ" (actual name) -> opens TABLE in DB with TABLE_NAME
         """
-        print("\n\nDS ER LAVET NU")
+        print("\n\nDataStorage objekt lavet ud fra", seed, "og", num_moloks)
 
         # --- config vars ---
         self.DB_NAME = "MolokData.db" # fix stien senere
         self.main_con = lite.connect(self.DB_NAME) # creates connection to DB from main thread
         self.main_cur = self.main_con.cursor() # creates cursor for main thread
 
-        print("DATABSAE CONNETET TIL")
-        
-        time.sleep(2)
 
         self.seed = seed
-        print("middel1 ->", type(seed))
+        #print("middel1 ->", type(seed))
         try:
-            print("Trying to reseed engine with", seed, type(seed))
+            #print("Trying to reseed engine with", seed, type(seed))
             self.rng = np.random.default_rng(seed) # creates a np.random generator-object with specified seed. Use self.rng for randomness
-            print("middel2")
+            #print("middel2")
         except Exception as e:
-            print("ERROR IDK?", e)
+            print("ERROR SETTING DEFUALT_RNG IDK?", e)
         self.num_moloks = num_moloks
 
-        print("middel3")
+      
 
         self.center_coords = center_coordinates
         self.scale = scale
-
-        print(ADDR, "fra DS")
 
         # --- socket vars ---
         if type(ADDR) == tuple: # checks that user wants to create socket for UDP comms with simulation
@@ -66,7 +61,7 @@ class DataStorage:
 
 
             #self.UDP_recv_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) # IPv4, UDP
-            print("port",self.sim_ADDR)
+            #print("port",self.sim_ADDR)
             #self.UDP_recv_socket.bind(("", self.sim_ADDR[1] )) # UDP server sock for receiving from sim
 
 
@@ -87,7 +82,7 @@ class DataStorage:
             print("Call 'get_sigfox_data()' to get sigfox data from the implemented measuring device")
 
         # create new table if TableName not in DBTables
-        print("DS ER NU I INIT, og tester if's", self.table_name, self.get_tablenames())
+        #print("DS ER NU I INIT, og tester if's", self.table_name, self.get_tablenames())
         if not self.table_name in self.get_tablenames():
             print(f"{self.table_name} not found in table names. Creating it now")
             self.create_table(self.table_name)
@@ -158,11 +153,11 @@ class DataStorage:
         norm_dist_lat = self.rng.normal(self.center_coords[0], self.scale/2, size = self.num_moloks)
         norm_dist_long = self.rng.normal(self.center_coords[1], self.scale, size = self.num_moloks)
         molok_coords = np.array(list(zip(norm_dist_lat, norm_dist_long)))
-        print("molok coords", molok_coords)
+        #print("molok coords", molok_coords)
        # sim fillPcts - use random (not normDist)
     
         init_fill_pcts = 50 * self.rng.random(self.num_moloks)
-        print("init", init_fill_pcts)
+        #print("init", init_fill_pcts)
         
         # sim timestamp
         timestamp = time.time()
