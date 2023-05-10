@@ -19,7 +19,7 @@ class DataStorage:
     Manipulates data and presents it to 'Route Planner' or 'GUI'
     """
 
-    def __init__(self, seed: any, num_moloks: int, center_coordinates = (57.01466, 9.987159), scale = 0.01 , ADDR = ('127.0.0.1', 12445)) -> None:
+    def __init__(self, center_coordinates = (57.01466, 9.987159), scale = 0.01) -> None:
         """
         There are two different ways to initialize DataStorages comms
         1. with ADDR = '(IP, PORT)' -> creates server socket for communication with simulation
@@ -36,44 +36,14 @@ class DataStorage:
         self.main_con = lite.connect(self.DB_NAME) # creates connection to DB from main thread
         self.main_cur = self.main_con.cursor() # creates cursor for main thread
 
-        self.seed = seed
-        self.rng = np.random.default_rng(seed=seed) # creates a np.random generator-object with specified seed. Use self.rng for randomness
-        self.num_moloks = num_moloks
+        self.seed = None                # set to none just to show that these exist and are attributes
+        self.num_moloks = None
+        self.rng = None
         self.center_coords = center_coordinates
         self.scale = scale
 
-        # --- socket vars ---
-        if type(ADDR) == tuple: # checks that user wants to create socket for UDP comms with simulation
-            
-            self.table_name = f"sim_seed{self.seed}_NumM{self.num_moloks}"
-
-            self.sim_ADDR = ADDR
-            self.BUFFER_SIZE = 1024
-            self.END_MSG = "stop"
-            self.UDP_recv_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) # IPv4, UDP
-
-            self.UDP_recv_socket.bind(("", self.sim_ADDR[1])) # UDP server sock for receiving from sim
-
-            # IPAddr=socket.gethostbyname(socket.gethostname())
-            # print(f"My IP is : {IPAddr}")
-
-            self.sim_thread = None # creating simThread variable
-            
-            print('Provided ADDR indicates simulation is to be run. UDP client ready...')
-        
-        # --- sigfox vars ---
-        elif ADDR == "sigfox":
-            self.table_name = f"sigfox_seed{self.seed}_NumM{self.num_moloks}"
-            self.md_positions = self.generate_MD_positions(self.num_moloks)
-            print(f"""Generated positions for moloks/measuring devices: {self.md_positions}. If you wish to override these
-            positions, change the 'md_positions' attribute manually""")
-
-            print("Call 'get_sigfox_data()' to get sigfox data from the implemented measuring device")
-
-        # create new table if TableName not in DBTables
-        if not self.table_name in self.get_tablenames():
-            print(f"{self.table_name} not found in table names. Creating it now")
-            self.create_table(self.table_name)
+        self.sim_thread = None # creating simThread variable
+        self.UDP_recv_socket = None
 
 
     def get_tablenames(self):
@@ -81,45 +51,76 @@ class DataStorage:
         self.main_cur.execute("SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
         return [i[0] for i in list(self.main_cur)]
 
-    def create_table(self, table_name):
-        """creates new table in DB with tableName"""
-        self.main_cur.execute(f"CREATE TABLE {table_name}(ID INTEGER PRIMARY KEY, molokID INTEGER, molokPos TUPLE, fillPct REAL, timestamp REAL)")
-        if table_name[:3] == "sim": # only auto generate data if simulations are to be run
-            self.generate_init_data(table_name)
-        return True
+    def create_table(self, seed, num_moloks, table_type):
+        """creates new table in DB. If a table with same seed and num moloks exists, that is returned instead of a new
+        one being created with same name
+        returns tablename"""
 
-    def show_table_by_tablename(self, table_name):
+        if table_type == 'sim':
+            table_name = f"sim_seed{seed}_NumM{num_moloks}"
+        
+        else: 
+            table_name = f"sigfox_seed{seed}_NumM{num_moloks}"
+
+        if table_name in self.get_tablenames(): # if table already exists
+            print("Table already exists")
+            return table_name
+
+        else:
+            self.main_cur.execute(f"CREATE TABLE {table_name}(ID INTEGER PRIMARY KEY, molokID INTEGER, molokPos TUPLE, fillPct REAL, timestamp REAL)")
+            if table_type == "sim": # only auto generate data if simulations are to be run
+                self.rng = np.random.default_rng(self.seed) # creates a np.random generator-object with specified seed. Use self.rng for randomness
+                self.generate_init_data(table_name, num_moloks)
+
+        return table_name
+    
+    def select_table(self, table_name, seed, num_moloks):
+        """sets self.table_name, self.seed and self.num_moloks based on input."""
+
+        # check if sim_thread is already active
+        activeThreads = threading.enumerate()
+        if self.sim_thread in activeThreads:
+            print("Simulation in progress. Please wait until finished before selecting new table")
+            return False
+
+        if table_name in self.get_tablenames(): # only choose existing table
+            self.table_name = table_name
+            self.seed = seed
+            self.num_moloks = num_moloks
+
+            self.rng = np.random.default_rng(self.seed) # override previous self.rng with potential new seed
+
+            return True     # if success
+        
+        return False # if table does not exist
+
+
+
+    def show_table(self):
         """shows Table with TableName from DB"""
-        self.main_cur.execute(f"SELECT * FROM '{table_name}'")
+        self.main_cur.execute(f"SELECT * FROM '{self.table_name}'")
 
         return np.array(list(self.main_cur))
     
-    def show_column_names_by_tablename(self, table_name):
+    def show_column_names(self):
         """Shows columns of specified table with TableName"""
-        self.main_cur.execute(f"PRAGMA table_info('{table_name}')")
+        self.main_cur.execute(f"PRAGMA table_info('{self.table_name}')")
 
         return np.array(self.main_cur.fetchall())
 
-    def fetch_data_by_molok_ID(self,table_name, Id):
+    def fetch_data_by_molok_ID(self, Id):
         """Returns all rows with specified Id"""
-        self.main_cur.execute(f"SELECT * FROM '{table_name}' WHERE molokID = '{Id}'")
+        self.main_cur.execute(f"SELECT * FROM '{self.table_name}' WHERE molokID = '{Id}'")
 
         return np.array(self.main_cur.fetchall()) 
     
-    # felt cute, might delete later
-    def fetch_column(self, table_name, column_name):
-        """Returns a specified column as a Numpy array"""
-        self.main_cur.execute(f"SELECT {column_name} FROM '{table_name}'")
-
-        return np.array(self.main_cur.fetchall())
-    
-    def fetch_latest_rows(self, table_name, cursor: str):
+    def fetch_latest_rows(self, cursor: str):
         """returns array containing a row for each molokId with its latest ID"""
         if cursor == "main":
-            self.main_cur.execute(f"SELECT MAX(ID), molokID, molokPos, fillPct, timestamp FROM '{table_name}' GROUP BY molokID")
+            self.main_cur.execute(f"SELECT MAX(ID), molokID, molokPos, fillPct, timestamp FROM '{self.table_name}' GROUP BY molokID")
             return np.array(self.main_cur.fetchall())
         elif cursor == "sim":
-            self.sim_cur.execute(f"SELECT MAX(ID), molokID, molokPos, fillPct, timestamp FROM '{table_name}' GROUP BY molokID")
+            self.sim_cur.execute(f"SELECT MAX(ID), molokID, molokPos, fillPct, timestamp FROM '{self.table_name}' GROUP BY molokID")
             return np.array(self.sim_cur.fetchall())
 
     def drop_table(self, table_name):
@@ -132,25 +133,25 @@ class DataStorage:
         self.main_cur.execute(f"DROP TABLE IF EXISTS '{table_name}'")
         return f"You just deleted table {table_name} if it even existed"
 
-    def generate_init_data(self, table_name):
+    def generate_init_data(self, table_name, num_moloks):
         """Internal method. Called when creating table in order to fill it with initial data for each molok. Just a single datapoint for each"""
 
         # sim mollok id (the molok id's will be passed when calling this function in __main__ and if the table is empty)
 
         # sim molok pos 
-        norm_dist_lat = self.rng.normal(self.center_coords[0], self.scale/2, size = self.num_moloks)
-        norm_dist_long = self.rng.normal(self.center_coords[1], self.scale, size = self.num_moloks)
+        norm_dist_lat = self.rng.normal(self.center_coords[0], self.scale/2, size = num_moloks)
+        norm_dist_long = self.rng.normal(self.center_coords[1], self.scale, size = num_moloks)
         molok_coords = np.array(list(zip(norm_dist_lat, norm_dist_long)))
-        print("molok coords", molok_coords)
-       # sim fillPcts - use random (not normDist)
+        # print("molok coords", molok_coords)
+        # sim fillPcts - use random (not normDist)
     
-        init_fill_pcts = 50 * self.rng.random(self.num_moloks)
-        print("init", init_fill_pcts)
+        init_fill_pcts = 50 * self.rng.random(num_moloks)
+        # print("init", init_fill_pcts)
         
         # sim timestamp
         timestamp = time.time()
         
-        for i in range(self.num_moloks):
+        for i in range(num_moloks):
             
             # insert (molokID, molokPos, fillPcts, timestamp) into DB ; where i is molok id 
             self.main_cur.execute(f"INSERT INTO {table_name}(molokID, molokPos, fillPct, timestamp) VALUES (?,?,?,?)", (i, str(molok_coords[i]), init_fill_pcts[i], timestamp))
@@ -294,9 +295,6 @@ class DataStorage:
             self.main_con.commit()
             
 
-
-
-
     def calc_fillpcts_from_MD(self, distance, molok_depth) -> float:
         """Calculates the fillpct from a measuring device based on measured distance and molok depth (both in cm)"""
         # the pct-wise distance from sensor to garbage. subtract from 100% to get garbage pct
@@ -304,17 +302,6 @@ class DataStorage:
         fillpct = 100 * (1 - measured_pct) # * 100 to convert from decimal to pct.
 
         return fillpct
-    
-    def generate_MD_positions(self, num_devices):
-        """Generates measuring device positions for 'log_sigfox_to_DB' to use. This method can be used if no positions exist
-        yet or if you want random positions instead of user-defined ones"""
-
-        norm_dist_lat = self.rng.normal(self.center_coords[0], self.scale/2, size = num_devices)
-        norm_dist_long = self.rng.normal(self.center_coords[1], self.scale, size = num_devices)
-        md_positions = np.array(list(zip(norm_dist_lat, norm_dist_long)))
-
-        return md_positions
-
 
     def get_sigfox_data(self, epoch):
         """Get msgs from sigfox network for the measuring device that were recieved after 'epoch' epoch time
@@ -343,7 +330,7 @@ class DataStorage:
         
         return messages[::-1] # msgs originally LIFO. flipping list to be FIFO
 
-    def log_sigfox_to_DB(self, epoch: int = 1681720002):
+    def log_sigfox_to_DB(self, device_coords: tuple = (57, 10), epoch: int = 1681720002):
         """Log information from MD's to DB"""
         
         # if multiple MDs were implemented, this var could be dynamic instead of hardcoded, but we only use the one
@@ -351,7 +338,7 @@ class DataStorage:
 
         md_msgs = self.get_sigfox_data(epoch=epoch)
 
-        device_pos = self.md_positions[meas_device_id]
+        device_pos = device_coords
 
         for msg in md_msgs:
 
@@ -391,7 +378,7 @@ class DataStorage:
         # creates list of fillPcts to send to sim and creates list of latest timestamps by molokID
         last_fillpct_list = []
         latest_timestamps = []
-        last_row_list = self.fetch_latest_rows(self.table_name, "sim")
+        last_row_list = self.fetch_latest_rows("sim")
         for i in last_row_list:
             fillpct = float(i[3])
             timestamp = float(i[4])
@@ -457,7 +444,7 @@ class DataStorage:
             self.UDP_recv_socket.settimeout(None) # now the socket will block forever, as by default. When thread runs again, timeout is set to n above
             self.TCP_handshake_socket.close()
 
-    def startSim(self, send_freq: int = 3) -> bool:
+    def startSim(self, ADDR, send_freq: int = 3) -> bool:
         """Uses our protocol called C22-SIM Protocol to contact simulation and handle its responses in a thread. 
         
         Input
@@ -468,6 +455,18 @@ class DataStorage:
         ---
         True: bool - if thread started succesfully \n
         False: bool - if thread already running"""
+
+        self.sim_ADDR = ADDR
+        self.BUFFER_SIZE = 1024
+        self.END_MSG = "stop"
+
+        if not self.UDP_recv_socket:        # only create the socket the first time this method is called
+            self.UDP_recv_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) # IPv4, UDP
+
+            self.UDP_recv_socket.bind(("", self.sim_ADDR[1])) # UDP server sock for receiving from sim
+
+        # IPAddr=socket.gethostbyname(socket.gethostname())
+        # print(f"My IP is : {IPAddr}")
 
         # creating and starting sim thread if simThread does not yet exist
         activeThreads = threading.enumerate()
@@ -481,6 +480,7 @@ class DataStorage:
         else: return False # meaning thread already running
 
 
+
 if __name__ == "__main__":
     
     def testOfSimThread(DS: DataStorage, sendFreq = 1):
@@ -488,49 +488,37 @@ if __name__ == "__main__":
         Check that all communication occurs correctly and remember that the first sent msg is a pickle."""
 
         while True:
-            print(DS.startSim(send_freq=sendFreq))
+            print(DS.startSim(ADDR= ('127.0.0.1', 12445), send_freq=sendFreq))
             time.sleep(3)
-            print(myDS.show_table_by_tablename(myDS.table_name))
+            print(myDS.show_table())
    
 
-    myDS = DataStorage(69, 1000, ADDR=('127.0.0.1', 12445))
+    seed = 20
+    num_moloks = 200
+    table_type = "sim"
+    myDS = DataStorage()
     
-    emptying_list = [(0,204), (3, 464), (1, 384)]
+    table_name = myDS.create_table(seed=seed, num_moloks=num_moloks, table_type=table_type)
 
-    print(myDS.set_fillpcts_to_0(emptying_list, 0))
+    print(table_name)
 
-    # print(myDS.log_sigfox_to_DB())
+    tables = myDS.get_tablenames()
 
-    print(myDS.show_table_by_tablename(myDS.table_name))
+    for table in tables:
+        print(f"selecting table: {table}")
+        switch_success = myDS.select_table(table, seed, num_moloks)
 
-    # reg_dict = myDS.lin_reg_sections()
-    # print(reg_dict)
+        while not switch_success:
+            time.sleep(1)
+            switch_success = myDS.select_table(table, seed, num_moloks)
+              
 
-    # avg_a = myDS.avg_growth_over_period(reg_dict, period_start=time.time() - 1000)
-    # print(avg_a)
-    # print(len(avg_a))
+        print(myDS.fetch_latest_rows(cursor='main'))
 
-    # testOfSimThread(myDS)
-    # data= [[0, 200],[1, 340],[3, 401]]
-    # print(myDS.set_fillpcts_to_0(routePlanner_data=data))
+        print(f"sim for table: {table}")
+        
+        print(myDS.startSim(ADDR= ('127.0.0.1', 12445), send_freq=1))
+        time.sleep(3)
+        print(myDS.show_table())
 
-    """Outcomment if you want to test"""
-    # print(f"showing all table names in DB: {myDS.getTableNames()}")
 
-    # print(f"{myDS.TableName} exists in DB: {myDS.TableName in myDS.getTableNames()}")
-
-    # print(f" showing table {myDS.TableName}: \n {myDS.showTableByName(myDS.TableName)}")
-
-    # print(f" Dropping table {'seed69_NumM5'}: {myDS.dropTable('seed69_NumM5')}")
-
-    # print(myDS.getTableNames())
-
-    # print(myDS.showColumnNamesByTableName(myDS.TableName))
-
-    # print(type(myDS.fetchDataByMolokId(myDS.TableName, 2)[0][4]))
-
-    # print(myDS.fetch_Column(myDS.tableName, 'fillPct'))
-
-    # print(myDS.fetch_latest_rows(myDS.table_name, "main"))
-
-    # print(myDS.contactSim())   
