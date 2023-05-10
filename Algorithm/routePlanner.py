@@ -15,6 +15,9 @@ TO-TEST:
 
 TO-DO:
 
+ - Skriv test-kode der kan outputte tabel med relevant data??? - kunne være fucking sej black box test vel (black box siden vi ikke
+                                                                                                            kender OR-Tools så godt)
+
  - skal kunne:
     - returnere bedste ruter til sidst                              DONE
     - returnere hvilke molokker der blev tømt og hvornår            DONE
@@ -153,10 +156,6 @@ class MasterPlanner:
 
         return routes
 
-    def showcase_stats(self):
-        """returns all attributes of object of class 'MasterPlanner'"""
-        pass
-
     def drop_molok(self):
         """drops molok that has the largest sum of distances to other moloks.
         Uses matrix-vector multiplication to sum distances from molok to every other molok"""
@@ -270,7 +269,7 @@ class MasterPlanner:
         """
         while self.try_num <= self.goal_tries:
 
-            print(f"\n---------- gen {self.try_num} of {self.goal_tries} ----------")
+            print(f"\n---------- attempt {self.try_num} of {self.goal_tries} ----------")
 
             success = self.prep_rp()
             if success:
@@ -281,7 +280,7 @@ class MasterPlanner:
             # solver status = 0 means not solved yet, 1 means solved, 2 means no solution found,
             # 3 means timeout, 4 means invalid model
             if solver_status != 1:                          # check if solution exists
-                print(f"\nNo solution found. Taking nescessary actions. beep boop, Bobby\n")
+                print(f"\nNo solution found. Taking nescessary actions\n")
 
                 # take action if invalid model (4). Will end route planning and user will have to restart with new model
                 if solver_status == 4:
@@ -695,7 +694,7 @@ class RoutePlanner:
         
         # --- key values ---
         num_moloks = len(self.data['molokPositions'])
-        final_string = f"\n___Key numbers___\n\nMoloks emptied: {num_moloks} \n"
+        final_string = f"\n___Key performance indicators___\n\nMoloks emptied: {num_moloks} \n"
         final_string += f"Trucks utilized: {trucks_utilized} \n"
         final_string += f"Total time spent: {total_time} min \nTotal distance driven: {total_dist} km \nTotal load collected: {total_load} kg \n"
         final_string += f"Average number of moloks pr. route: {num_moloks / trucks_utilized} moloks/route \n"
