@@ -9,9 +9,6 @@ import requests
 import json
 
 
-
-
-
 class DataStorage:
     """
     Handles data from sigfox or simulation.
@@ -294,7 +291,7 @@ class DataStorage:
             # writing sim msg to DB
             self.main_cur.execute(f"INSERT INTO {self.table_name} (molokId, molokPos, fillPct, timestamp) VALUES (?,?,?,?)", (molok_id, str(molokPos), 0, timestamp))
             self.main_con.commit()
-            
+       
 
     def calc_fillpcts_from_MD(self, distance, molok_depth) -> float:
         """Calculates the fillpct from a measuring device based on measured distance and molok depth (both in cm)"""
