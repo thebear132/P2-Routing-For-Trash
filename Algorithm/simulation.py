@@ -123,6 +123,5 @@ class Simulation:
 
         return Completelist
 
-
-sim = Simulation(start_listen=True)
-#print(sim.simulate(2, [2, 2, 2], 2, [1, 1, 1]))
+if __name__ == "__main__":
+    sim = Simulation(start_listen=True)
