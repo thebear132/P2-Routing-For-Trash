@@ -6,9 +6,16 @@ from dash import Dash, dcc, html
 from dash.dependencies import Input, Output, State
 from tqdm import tqdm
 
+import sys, os.path
 
-from DELETEME.datastorage import DataStorage
-from DELETEME.Simulation import Simulation
+# Append the Server/ folder to the sys.path in order to grab both datastorage.py and simulation.py
+a = (os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
++ '/Server/')
+sys.path.append(a)
+from datastorage import DataStorage
+from Simulation import Simulation
+
+
 
 
 def getSeedAndMolok(tableName):
@@ -27,7 +34,7 @@ def blank_fig():    # A template for an empty figure
     return fig
 
 
-def plot_sim(selectedTable):
+def FigCraft(selectedTable):
     #print(selectedTable, seed, moloks)
     tmpDS = DataStorage()
     tableType, seed, moloks = getSeedAndMolok(selectedTable)
@@ -136,6 +143,7 @@ app.layout = html.Div([
 
                 #Start sim / get sigfox
                 html.Button("Start simulation", id='gatherDataButton', style={"width": "100px"}),
+                html.Button("Update", id="update", style={"width": "100px"}),
 
             
             ], style={"display": "flex", "flex-direction": "row", 'width': '40vw'}),
@@ -155,16 +163,16 @@ app.layout = html.Div([
         State('seedText', 'value'),
         State('radioItems', 'value'))
 def callCreateTable(n_clicksButton, nrMoloksSlider, seedText, typeTable):
-    #print("@ CALL_CREATE_TABLE() |", n_clicksButton, nrMoloksSlider, seedText, typeTable)
+    print("@ CALL_CREATE_TABLE() |", n_clicksButton, nrMoloksSlider, seedText, typeTable)
     
     tmpDS = DataStorage(center_coordinates=(57.0336483, 9.9261796), scale=0.05)
     typeTable = typeTable.lower()
+        
     if n_clicksButton != None:
         if 'sim' in typeTable: typeTable = 'sim'
         tmpDS.create_table(seedText, nrMoloksSlider, typeTable.lower())
-    
+        
     return tmpDS.get_tablenames()
-
 
 #Starts a simulation from the selected table
 @app.callback(Output("Map1", "figure", allow_duplicate=True),
@@ -172,16 +180,32 @@ def callCreateTable(n_clicksButton, nrMoloksSlider, seedText, typeTable):
               State('tableDropdown', "value"),
               State('IPTextInput', "value"), prevent_initial_call=True)
 def StartSim(nrOfClicks, selectTable, IP):
-    print("hej hej hejeh ejeh eh")
-    tmpDS = DataStorage()
-    tableType, seed, molok = getSeedAndMolok(selectTable)
-    tmpDS.select_table(selectTable, seed, molok)
-    sim = Simulation()
-
+    if selectTable == None:
+        return blank_fig()
+    
+    try:
+        tmpDS = DataStorage()
+        tableType, seed, molok = getSeedAndMolok(selectTable)
+        tmpDS.select_table(selectTable, seed, molok)
+        tmpDS.startSim((IP, 12445))
+    except Exception as e:
+        print(e)
+   
+    print("Done")
 
     return blank_fig()
+#   startSim(self, ADDR, send_freq: int = 3)
 
-#   def simulate(self, seed, fill_pct, sendHyp, time_stamps):
+
+
+@app.callback(Output("Map1","figure", allow_duplicate=True),
+              Input("update", "n_clicks"),
+              State('tableDropdown', "value"), prevent_initial_call=True)
+def update_map(n_clicks,select_table):
+    #print("update button !!!!!")
+    return FigCraft(select_table)
+    
+
 
 #Updates Scatter-map when table is selected from dropdown
 @app.callback(Output("Map1", "figure"),
@@ -192,13 +216,13 @@ def Callupdate_scatterMap(selectedTable):
     # When intitial request (meaning selectedTable is None), return a blank figure
     if selectedTable == None: return blank_fig()
 
-    return plot_sim(selectedTable)
+    return FigCraft(selectedTable)
 
     
 
 
 if __name__ == "__main__":
-    app.run_server(debug=True)
+    app.run_server(debug=False)
 
 
 #fig.show()
