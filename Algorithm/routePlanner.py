@@ -234,9 +234,11 @@ class MasterPlanner:
                 initial_routes.append(route)
             print("Passing current best routes into route planner")
 
-        self.rp = RoutePlanner(depot_args, molok_args, truck_args, timelimit_for_curr_try,
-                    first_solution_strategy=self.first_solution_strat, local_search_strategy=self.local_search_strat,
-                    initial_routes=initial_routes)
+        self.rp = RoutePlanner(depot_args, molok_args, truck_args,
+                               time_limit=timelimit_for_curr_try,
+                               first_solution_strategy=self.first_solution_strat,
+                               local_search_strategy=self.local_search_strat,
+                               initial_routes=initial_routes)
         
         return True
 
@@ -333,6 +335,7 @@ class RoutePlanner:
                  molokAgrs: list = ["list[molokPositions]", "int(emptying time)", "list[fillPcts]", "int(molokCapacity(kg))", "list[estimatedLinearGrowthrates]", "int(slack)"],
                  truckAgrs: list = ["int(range(km))", "int(numTrucks)", "int(capacity(kg))", "int(workStart)", "int(workStop)"],
                  time_limit: int = 60,
+                 solution_limit = None,
                  first_solution_strategy: str = "2",
                  local_search_strategy: str = "",
                  initial_routes = None) -> None:
@@ -363,7 +366,10 @@ class RoutePlanner:
             "4": routing_enums_pb2.LocalSearchMetaheuristic.TABU_SEARCH
         }
 
-        self.time_limit = time_limit        # limit in seconds for solver to return best found set of routes
+        self.time_limit = time_limit            # limit in seconds for solver to return best found set of routes
+
+        # only added for testing algorithms
+        self.solution_limit = solution_limit    # if solution limit is provided, add it (default None)
 
         self.first_solution_strategy = self.first_solution_strats[first_solution_strategy]
 
@@ -692,7 +698,7 @@ class RoutePlanner:
 
             print(route_string)
         
-        # --- key values ---
+        # --- key performance indicators ---
         num_moloks = len(self.data['molokPositions'])
         final_string = f"\n___Key performance indicators___\n\nMoloks emptied: {num_moloks} \n"
         final_string += f"Trucks utilized: {trucks_utilized} \n"
@@ -716,7 +722,11 @@ class RoutePlanner:
             print("applying metaheuristics")
             search_parameters.local_search_metaheuristic = (self.local_search_strategy)
 
-        search_parameters.time_limit.seconds = self.time_limit
+        if self.solution_limit != None:     # if solution limit provided, use that instead of time limit (really only for testing)
+            search_parameters.solution_limit = self.solution_limit
+            print(f"Using specified solution limit: {self.solution_limit}")
+
+        else:search_parameters.time_limit.seconds = self.time_limit
 
         # If initial routes exist, solve from that standpoint
         if self.data['initial_routes'] != None:
