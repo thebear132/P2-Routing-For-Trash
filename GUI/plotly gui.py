@@ -1,3 +1,7 @@
+"""
+Read the user manual here tak https://dash.plotly.com/ 
+"""
+
 import plotly.express as px
 import plotly.graph_objects as go
 import pandas as pd
@@ -5,6 +9,7 @@ import numpy as np
 from dash import Dash, dcc, html
 from dash.dependencies import Input, Output, State
 from tqdm import tqdm
+
 
 import sys, os.path
 
@@ -15,6 +20,10 @@ sys.path.append(a)
 from datastorage import DataStorage
 from Simulation import Simulation
 
+b = (os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
++ '/Algorithm/')
+sys.path.append(b)
+from routePlanner import MasterPlanner
 
 
 
@@ -63,18 +72,17 @@ def FigCraft(selectedTable):
                             range_color=[0,100],
                             color_continuous_scale=px.colors.sequential.Blackbody_r,
                             #width=1280, height=720,
-                            #size=[1 for i in range(len(df["lon"]))],
+                            size=[1 for i in range(len(df["lon"]))],
                             opacity=1,
-                            size_max=5,
+                            size_max=20,
                             hover_name="Molok:" + df["MolokID"].astype(str),
                             color="Fill_pct",
                             lon="lon",
-                            lat="lat",
-                            mapbox_style="open-street-map")
+                            lat="lat")
 
     
     # Make map larger in GUI
-    fig.update_layout(margin ={'l':0,'t':0,'b':0,'r':0})
+    fig.update_layout(mapbox_style="open-street-map", margin ={'l':0,'t':0,'b':0,'r':0})
     return fig
     
 
@@ -106,7 +114,7 @@ app.layout = html.Div([
             html.Div([
                 #slider
                 html.Label(html.B("Moloks: ")),
-                dcc.Slider(0, 1000, 200, value=500, id='nrMoloksSlider'),
+                dcc.Slider(0, 100, 10, value=0, id='nrMoloksSlider'),
                 #Radio items
                 dcc.RadioItems(["Simulation", "SigFox"], "Simulation", id="radioItems", inline=True, style={"margin-right": "30px","padding": "5px"}),
 
@@ -124,7 +132,7 @@ app.layout = html.Div([
             html.H2("Show table"),
             html.Div(children=[
                 #Dropdown
-                 dcc.Dropdown(id="tableDropdown", options=[1, 2], searchable=True, placeholder="Select table", style={"width": "200px"}),
+                 dcc.Dropdown(id="tableDropdown", options=[1, 2], searchable=True, placeholder="Select table", value="sim_seed435_NumM5", style={"width": "200px"}),
             
             ], style={"display": "flex", "flex-direction": "row", 'width': '40vw'}),
             
@@ -142,11 +150,17 @@ app.layout = html.Div([
                 html.Button("Start simulation", id='gatherDataButton', style={"width": "100px"}),
                 html.Button("Update", id="update", style={"width": "100px"}),
 
-            
             ], style={"display": "flex", "flex-direction": "row", 'width': '40vw'}),
-            
-            dcc.Markdown("___", style={"margin-top": "20px"}),  # HORIZONTAL LINE DIVIDER
-            html.Br(),
+                dcc.Markdown("___", style={"margin-top": "20px"}),  # HORIZONTAL LINE DIVIDER
+                html.Br(),     
+                   
+            html.H2("Route planner"),
+            html.Div(children=[
+                
+                #Plan route
+                html.Button("Plan route", id='planRouteButton', style={"width": "100px"})
+                ])
+
         ])
         
        ], style={'display' :'flex', 'flex-direction': 'row'})
@@ -171,6 +185,10 @@ def callCreateTable(n_clicksButton, nrMoloksSlider, seedText, typeTable):
         
     return tmpDS.get_tablenames()
 
+
+
+
+
 #Starts a simulation from the selected table
 @app.callback(Output("Map1", "figure", allow_duplicate=True),
               Input('gatherDataButton', "n_clicks"),
@@ -189,21 +207,23 @@ def StartSim(nrOfClicks, selectTable, IP):
         # tmpDS.simThread.join()
     except Exception as e:
         print(e)
-    
     print("Done")
-
     return blank_fig()
 #   startSim(self, ADDR, send_freq: int = 3)
 
 
 
+
+
+#Button for updates 
 @app.callback(Output("Map1","figure", allow_duplicate=True),
               Input("update", "n_clicks"),
               State('tableDropdown', "value"), prevent_initial_call=True)
 def update_map(n_clicks,select_table):
     #print("update button !!!!!")
     return FigCraft(select_table)
-    
+
+
 
 
 #Updates Scatter-map when table is selected from dropdown
@@ -211,17 +231,78 @@ def update_map(n_clicks,select_table):
               Input('tableDropdown', "value"))
 def Callupdate_scatterMap(selectedTable):
     print("\n@ Callupdate_scatterMap()")
-    
-    # When intitial request (meaning selectedTable is None), return a blank figure
+    # When intitial request (meaning selectedTable is None), return the first table in Database
     if selectedTable == None: return blank_fig()
-
+    
     return FigCraft(selectedTable)
 
     
+@app.callback(Output("Map1", "figure",allow_duplicate=True),
+              Input('planRouteButton', "n_clicks"),
+              State('tableDropdown', "value"), prevent_initial_call=True)
+def DisplayRoutes(n_clicks, select_table):
+    print("@ DisplayRoutes", select_table)
+    fig = FigCraft(select_table)
+
+
+    molok_pos_list = list(zip(fig.data[0]["lat"], fig.data[0]["lon"]))
+    
+    molok_fillpcts = fig.data[0]['marker']['color']
+    
+  
+    dataS = DataStorage() 
+    type, seed, molok = getSeedAndMolok(select_table)
+    dataS.select_table(select_table, seed, molok)
+    molok_est_data = dataS.lin_reg_sections()
+    
+    avg_grs = dataS.avg_growth_over_period(molok_est_data, period_start = 0, period_end = 999999999999999)
+    avg_grs = avg_grs * 60
+    
+    num_trucks = 2
+    ttem = 5                                            # time to empty molok
+    num_moloks = len(molok_pos_list)
+    truck_range = 100
+    truck_capacity = 3000
+    timelimit = 20
+    first_solution_strategy = "3"
+    local_search_strategy = "3"
+    seed = 20
+    np.random.seed(seed=seed)
+
+    mp = MasterPlanner(600, 2200, (57.01541, 9.99), molok_pos_list, ttem, molok_fillpcts.tolist(), 500, avg_grs.tolist(),
+                       truck_range, num_trucks, truck_capacity, 600, 1400, timelimit,
+                       first_solution_strategy, local_search_strategy)
+
+    
+    mp.master()
+
+    routes = mp.current_best["routes"]
+
+    print(routes)
+
+    #routes = [['depot', 2, 1, 3, 'depot'], ['depot', 4]]
+    for i, route in enumerate(routes):
+        Rlat = []
+        Rlon = []
+        for ii, molok in enumerate(route):
+            if molok == "depot":
+                route[ii]=0
+            Rlat.append(fig.data[0]["lat"][route[ii]])
+            Rlon.append(fig.data[0]["lon"][route[ii]])
+
+        fig.add_trace(go.Scattermapbox(
+            mode = "lines",
+            hoverinfo= "skip",
+            name= f"Truck {i}",
+            showlegend=True,
+            lon = Rlon,
+            lat = Rlat,
+            line = dict(width = 3)))
+    
+    return fig
 
 
 if __name__ == "__main__":
-    app.run_server(debug=False)
-
+    app.run_server(debug=True)
 
 #fig.show()

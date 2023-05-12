@@ -196,7 +196,7 @@ class DataStorage:
         growthrates_dict = {}
 
         for molok_id in range(self.num_moloks):
-            molok_data = self.fetch_data_by_molok_ID(self.table_name, molok_id)
+            molok_data = self.fetch_data_by_molok_ID(molok_id)
             
             first_timestamp = molok_data[0][4] # epoch time
 
@@ -479,6 +479,9 @@ class DataStorage:
 
         else: return False # meaning thread already running
 
+    def join_sim_thread(self):
+        """Allows GUI to join simThread into another thread. It lets the GUI update the map as soon as the sim thread is done"""
+        self.sim_thread.join()
 
 
 if __name__ == "__main__":
