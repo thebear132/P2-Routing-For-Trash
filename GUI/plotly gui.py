@@ -91,9 +91,6 @@ def FigCraft(selectedTable):
 #     line = dict(width = 3, color = 'blue'),
 #     opacity = 0.5))
 
-# TODO2
-# Start en simulation (start Simulation.py og dataStorage.py og få data)
-# Plot molokkerne igen med deres nye fill_pct's (de burde være gået op nu)
 
 app = Dash(__name__)
 
@@ -139,7 +136,7 @@ app.layout = html.Div([
             html.Div(children=[
                 
                 #IP-address
-                dcc.Input(type="text", id="IPTextInput", value="127.0.0.1", style={"width": "70px", "margin-right": "30px"}),
+                dcc.Input(type="text", id="IPTextInput", value="127.0.0.1", style={"width": "100px", "margin-right": "30px"}),
 
                 #Start sim / get sigfox
                 html.Button("Start simulation", id='gatherDataButton', style={"width": "100px"}),
@@ -188,9 +185,11 @@ def StartSim(nrOfClicks, selectTable, IP):
         tableType, seed, molok = getSeedAndMolok(selectTable)
         tmpDS.select_table(selectTable, seed, molok)
         tmpDS.startSim((IP, 12445))
+        # TODO 3
+        # tmpDS.simThread.join()
     except Exception as e:
         print(e)
-   
+    
     print("Done")
 
     return blank_fig()
