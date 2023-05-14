@@ -79,13 +79,35 @@ def FigCraft(selectedTable):
                             color="Fill_pct",
                             lon="lon",
                             lat="lat")
-
     
     # Make map larger in GUI
     fig.update_layout(mapbox_style="open-street-map", margin ={'l':0,'t':0,'b':0,'r':0})
-    return fig
     
+    print(df["lon"][0])
+    
+    #Mark the depot
+    fig.add_trace(go.Scattermapbox(
+    mode = "markers+text",
+    lon = [df["lon"][0]], lat = [df["lat"][0]],
+    marker = {'size': 20, "color": "green"},
+    text = ["Depot"],textposition = "bottom right"))
+    #depot adresse Over Bækken 2, Aalborg
 
+    return fig
+
+"""
+    #Mark depot 
+    fig.add_trace(go.Scattermapbox(
+        mode = "markers",
+        size = 14
+        hoverinfo= "Depot",
+        name= "Depot",
+        showlegend=False,
+        lon = df["lon"][0],
+        lat = df["lat"][0],
+        line = dict(width = 3)))"""
+    
+    
 # TODO1
 #Lav en "plot rute" knap
 #Tegn ruterne ved at tegne linjer 
@@ -290,6 +312,7 @@ def DisplayRoutes(n_clicks, select_table):
             Rlat.append(fig.data[0]["lat"][route[ii]])
             Rlon.append(fig.data[0]["lon"][route[ii]])
 
+        #lines 
         fig.add_trace(go.Scattermapbox(
             mode = "lines",
             hoverinfo= "skip",
@@ -298,7 +321,9 @@ def DisplayRoutes(n_clicks, select_table):
             lon = Rlon,
             lat = Rlat,
             line = dict(width = 3)))
-    
+        
+
+  
     return fig
 
 
