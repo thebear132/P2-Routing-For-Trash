@@ -196,7 +196,7 @@ class DataStorage:
         growthrates_dict = {}
 
         for molok_id in range(self.num_moloks):
-            molok_data = self.fetch_data_by_molok_ID(self.table_name, molok_id)
+            molok_data = self.fetch_data_by_molok_ID(molok_id)
             
             first_timestamp = molok_data[0][4] # epoch time
 
@@ -275,13 +275,13 @@ class DataStorage:
 
         return avg_growthrates
 
-    def set_fillpcts_to_0(self, routePlanner_data, route_start_time):
+    def set_fillpcts_to_0(self, molok_emptytime, route_start_time):
         """
         From routeplanner, when moloks are emptied from routes,
         this function sets the filling procentage to 0 by updating the latest rows in the database. 
         """
         
-        for molok in routePlanner_data:
+        for molok in molok_emptytime:
             molok_id = molok[0]
             timestamp = molok[1] + route_start_time
             self.main_cur.execute(f"SELECT molokPos FROM '{self.table_name}' WHERE molokID = '{molok_id}'")

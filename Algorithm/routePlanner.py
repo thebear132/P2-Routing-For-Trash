@@ -231,7 +231,7 @@ class MasterPlanner:
 
             # remove depot(index 0) from routes or OR-Tools will return None from initial routes
             initial_routes = []
-            print("routes pre sorting: ", self.current_best['routes'])
+            # print("routes pre sorting: ", self.current_best['routes'])
             for route in self.current_best['routes']:
                 if 0 not in route:      # sometimes routes are already without the depots (bug when adding and halving slack)
                     pass                # don't pop from it. Just pass instead
@@ -260,7 +260,7 @@ class MasterPlanner:
         # get routes to list of lists
         routes = self.rp.get_routes(solution, self.rp.routing, self.rp.manager)
 
-        print(f"Got routes from solver: {routes}")
+        # print(f"Got routes from solver: {routes}")
 
         # get cumulative data from routes and put into lists of lists
         time_const = self.rp.routing.GetDimensionOrDie(self.rp.time_windows_constraint)
@@ -325,15 +325,15 @@ class MasterPlanner:
             self.current_best['truck_loads'] = truck_loads
             self.current_best['truck_distances'] = truck_distances
 
-            self.rp.print_solution(self.current_best['routes'], self.current_best['visit_times'], self.current_best['truck_loads'], self.current_best['truck_distances'])
+            # self.rp.print_solution(self.current_best['routes'], self.current_best['visit_times'], self.current_best['truck_loads'], self.current_best['truck_distances'])
 
-            print(self.rp.data)
+            # print(self.rp.data)
 
-            print(f"actions taken: {self.actions_taken}")
+            # print(f"actions taken: {self.actions_taken}")
 
             # print(f"current_best routes: {self.current_best}")
 
-            if self.try_num != self.goal_tries:                                 # don't halve slack when done
+            if self.try_num != self.goal_tries and self.added_slack > 0:        # don't halve slack when done
                 self.added_slack = int(self.added_slack/2)                      # slack is halved if route is found
                 print(f"Solution found - halving slack and rounding down. Updated slack to: {self.added_slack}")
             self.try_num += 1                       # increment count
