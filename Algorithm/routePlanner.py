@@ -43,7 +43,7 @@ class MasterPlanner:
     def __init__(self, depot_open: int, depot_close: int, depot_pos: tuple, molok_pos_list: list, tte_molok: int,
                  fill_pcts: list, molok_capacity: int, molok_est_growthrates: list, truck_range: int, num_trucks: int,
                  truck_capacity: int, work_start: int, work_stop: int, time_limit_seconds: int,
-                 first_solution_strategy: int = "2", local_search_strategy: int = "", num_attempts: int = 10,
+                 first_solution_strategy: int = "1", local_search_strategy: int = "3", num_attempts: int = 10,
                  max_slack: int = 30) -> None:
         """
         contains all inputs and meta parameters
