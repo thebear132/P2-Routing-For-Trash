@@ -127,7 +127,12 @@ def molokTimeWindows(fillPcts, estGrowthrates, slack: int):
      # solve for x: 100 = a*x + b -> x = (100-b)/a
      # a = growthrate, b= fillPct, and x is minutes
     for i in range(len(fillPcts)):
-        x = (100 - fillPcts[i])/estGrowthrates[i] + slack
+        x = (100 - fillPcts[i])/estGrowthrates[i]
+        if x < 0:           # makes it so the smallest timewindow is [0, 0], meaning instant 100% fillpct
+            x = 0
+        
+        x += slack          # slack is added last
+
         TWs[i] = [0, int(x)]
 
     return TWs

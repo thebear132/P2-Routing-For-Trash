@@ -389,8 +389,8 @@ class DataStorage:
             return False
 
         # If routePlanner has emptied moloks then call set_fillpcts_to_0
-        if RoutePlanner.get_molok_empty_timestamps() == True:
-            self.set_fillpcts_to_0() 
+        # if RoutePlanner.get_molok_empty_timestamps() == True:
+        #    self.set_fillpcts_to_0() 
 
 
 
@@ -427,7 +427,8 @@ class DataStorage:
 
         try:
             while True: # loop until self.END_MSG is received or socket times out
-
+                
+                time.sleep(0.05)
                 msg = self.UDP_recv_socket.recv(self.BUFFER_SIZE)
                 msg = pickle.loads(msg)                
                 
@@ -486,6 +487,11 @@ class DataStorage:
 
         else: return False # meaning thread already running
 
+    def join_sim_thread(self):
+        """Allows GUI to join simthread into another thread. It lets the GUI update the map as soon as the sim thread is done"""
+
+        self.sim_thread.join()
+
 
 if __name__ == "__main__":
     
@@ -499,7 +505,20 @@ if __name__ == "__main__":
             print(myDS.show_table_by_tablename(myDS.table_name))
    
 
-    myDS = DataStorage(69, 1000, ADDR=('127.0.0.1', 12445))
+    myDS = DataStorage(69, 1000, ADDR=('192.168.137.234', 12445))
+
+
+    print(myDS.startSim(send_freq=1))
+    print("joining threads")
+    starttime = time.time()
+    # myDS.join_sim_thread()
+
+    finish_time = time.time()
+
+    print(f"after join. It took {finish_time-starttime} seconds")
+
+
+    exit()
     
     num_trucks = 2
     ttem = 5                                            # time to empty molok
@@ -530,7 +549,7 @@ if __name__ == "__main__":
     emptying_list = rp.get_molok_empty_timestamps(routes, visit_times)
     print(emptying_list)
 
-    print(myDS.set_fillpcts_to_0(emptying_list, 0))
+    # print(myDS.set_fillpcts_to_0(emptying_list, 0))
 
     # print(myDS.log_sigfox_to_DB())
 

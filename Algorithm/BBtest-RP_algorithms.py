@@ -32,12 +32,14 @@ for seed in [10, 20, 30]:
             result = route_planner(inputs, num_moloks, algorithm)
             table.append(result)    
 
-save result in file
+save result in pickle file
 
 """
 
 import numpy as np
 import time
+import pandas as pd
+import pickle
 
 import support_functions as sf
 from routePlanner import RoutePlanner
@@ -106,35 +108,35 @@ if __name__ == "__main__":
     truck_start = 600       # work start
     truck_stop = 1400       # work end
 
-    solution_limit = 10    # Limit to the number of solutions generated during the search
+    solution_limit = 500    # Limit to the number of solutions generated during the search
+    time_limit = 2        # 2 minute timelimit
 
     # --- test vars ---
     seeds = [10, 20, 30]
-    num_moloks_list = [100, 200, 300]
+    num_moloks_list = [10, 50, 100]
     first_solution_strategies_list = ["1", "2", "3"]
     local_search_strategies = ["1", "2", "3", "4"]
 
-    test_res_dict = {
-        "inputs" : [depot_open, depot_close, depot_pos, ttem, molok_capacity, slack, num_trucks, truck_range, truck_capacity, truck_start, truck_stop, solution_limit, seeds, num_moloks_list, first_solution_strategies_list, local_search_strategies]
-    }
-    times = []
+    test_res_dict = {}
 
     # start looping to test params
     for seed in seeds:
 
         test_res_dict[seed] = {}
+        times = []
+        df_index = []
+
+        test_res_dict[seed]['times'] = []
+        test_res_dict[seed]['num_moloks'] = []
+        test_res_dict[seed]['total_time'] = []
+        test_res_dict[seed]['total_dist'] = []
+        test_res_dict[seed]['total_load'] = []
+        test_res_dict[seed]['moloks_pr_route'] = []
+        test_res_dict[seed]['time_pr_route'] = []
+        test_res_dict[seed]['dist_pr_route'] = []
+        test_res_dict[seed]['load_pr_route'] = []
 
         for num_moloks in num_moloks_list:
-
-            test_res_dict[seed][num_moloks] = []
-            test_res_dict[seed]['num_moloks'] = []
-            test_res_dict[seed]['total_time'] = []
-            test_res_dict[seed]['total_dist'] = []
-            test_res_dict[seed]['total_load'] = []
-            test_res_dict[seed]['m_pr_route'] = []
-            test_res_dict[seed]['t_pr_route'] = []
-            test_res_dict[seed]['d_pr_route'] = []
-            test_res_dict[seed]['l_pr_route'] = []
 
             np.random.seed(seed=seed)           # lock seed for random generation. This will make datamodels identical
 
@@ -146,9 +148,11 @@ if __name__ == "__main__":
             molok_fillpcts = np.random.normal(70, 5, num_moloks)
             avg_grs = np.random.normal(0.1, 0.01, num_moloks)
 
-            for sol_strat in first_solution_strategies_list:                    # use RP in this loop. Save results from here as well
+            for i, sol_strat in enumerate(local_search_strategies):  # use RP in this loop. Save results from here as well
 
-                print(f"\n@@@@@ Test for first sol strat {sol_strat} @@@@@")
+                df_index.append(f"{sol_strat}")
+
+                print(f"\n@@@@@ Test for local sol strat {sol_strat} @@@@@")
 
                 print(f"___Test_Params___")
                 print(f"seed: {seed}")
@@ -157,10 +161,10 @@ if __name__ == "__main__":
                 rp = RoutePlanner(depotArgs=[depot_open, depot_close, depot_pos],
                                   molokAgrs=[molok_pos_list, ttem, molok_fillpcts, molok_capacity, avg_grs, slack],
                                   truckAgrs=[truck_range, num_trucks, truck_capacity, truck_start, truck_stop],
-                                  time_limit=0,
-                                  solution_limit=solution_limit,
-                                  first_solution_strategy=sol_strat,
-                                  local_search_strategy="",
+                                  time_limit=time_limit,
+                                  solution_limit=None,                      # set to None if time_limit is to be used
+                                  first_solution_strategy="1",              # set to "1" when testing local search metaheuristics
+                                  local_search_strategy=sol_strat,          # set to 'local_search_strategies'
                                   initial_routes=None)
                 
                 # print(rp.data)
@@ -183,22 +187,50 @@ if __name__ == "__main__":
                 truck_distances = rp.get_cumul_data(solution, rp.routing, distance_constraint)
 
                 num_moloks, total_time, total_dist, total_load, moloks_pr_route, time_pr_route, distance_pr_route, load_pr_route = save_KPIs(num_moloks, routes, visit_times, truck_loads, truck_distances)
-                # rp.print_solution(routes, visit_times, truck_loads, truck_distances)
 
                 time_spent = finish - start
                 times.append(time_spent)
-                print(f"Time spent solving: {time_spent} seconds")
+                # print(f"Time spent solving: {time_spent} seconds")
 
-                test_res_dict[seed][num_moloks].append(time_spent)
-                
+                # if i == 0:          # save first solution strategy's result. All others will then be compared to this
+                #     first_sol_total_time = total_time
+                #     first_sol_total_dist = total_dist
+                #     first_sol_total_load = total_load
+                #     first_sol_t_pr_r = time_pr_route
+                #     first_sol_d_pr_r = distance_pr_route
+                #     first_sol_l_pr_r = load_pr_route
+
+                # elif i in [1, 2]:               # compare solution with christofides and display as +/-
+                #     total_time = first_sol_total_time - total_time
+                #     total_dist = first_sol_total_dist - total_dist
+                #     total_load = first_sol_total_load - total_load
+                #     time_pr_route = first_sol_t_pr_r - time_pr_route
+                #     distance_pr_route = first_sol_d_pr_r - distance_pr_route
+                #     load_pr_route = first_sol_l_pr_r - load_pr_route
+
+
+                test_res_dict[seed]['times'].append(time_spent)
                 test_res_dict[seed]['num_moloks'].append(num_moloks)
                 test_res_dict[seed]['total_time'].append(total_time)
                 test_res_dict[seed]['total_dist'].append(total_dist)
                 test_res_dict[seed]['total_load'].append(total_load)
-                test_res_dict[seed]['m_pr_route'].append(moloks_pr_route)
-                test_res_dict[seed]['t_pr_route'].append(time_pr_route)
-                test_res_dict[seed]['d_pr_route'].append(distance_pr_route)
-                test_res_dict[seed]['l_pr_route'].append(load_pr_route)
+                test_res_dict[seed]['moloks_pr_route'].append(moloks_pr_route)
+                test_res_dict[seed]['time_pr_route'].append(time_pr_route)
+                test_res_dict[seed]['dist_pr_route'].append(distance_pr_route)
+                test_res_dict[seed]['load_pr_route'].append(load_pr_route)
 
-print(times)
-print(test_res_dict[10])
+df_dict = {
+    "inputs" : [depot_open, depot_close, depot_pos, ttem, molok_capacity, slack, num_trucks, truck_range,
+                truck_capacity, truck_start, truck_stop, time_limit, seeds, num_moloks_list, first_solution_strategies_list,
+                local_search_strategies]
+}
+
+for seed in seeds:
+    df_dict[seed] = pd.DataFrame(data=test_res_dict[seed], index=df_index)
+    # print(df_dict[seed])
+
+filename = f"BB_algotest_meta-timelimit123"
+
+with open(filename, "wb") as file:
+    pickle.dump(df_dict, file)
+
