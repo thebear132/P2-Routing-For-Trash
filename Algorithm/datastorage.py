@@ -32,19 +32,18 @@ class DataStorage:
         """
 
         # --- config vars ---
-        self.DB_NAME = "Server\MolokData.db" # fix stien senere
-        self.main_con = lite.connect(self.DB_NAME) # creates connection to DB from main thread
-        self.main_cur = self.main_con.cursor() # creates cursor for main thread
-
         self.seed = None                # set to none just to show that these exist and are attributes
         self.num_moloks = None
-        self.rng = None
         self.center_coords = center_coordinates
         self.scale = scale
 
         self.sim_thread = None # creating simThread variable
         self.UDP_recv_socket = None
 
+    def create_and_connect_to_DB(self, DB_name="Server\MolokData.db"):
+        self.DB_NAME = DB_name # fix stien senere
+        self.main_con = lite.connect(self.DB_NAME) # creates connection to DB from main thread
+        self.main_cur = self.main_con.cursor() # creates cursor for main thread
 
     def get_tablenames(self):
         """returns table names from DB"""
@@ -69,7 +68,7 @@ class DataStorage:
         else:
             self.main_cur.execute(f"CREATE TABLE {table_name}(ID INTEGER PRIMARY KEY, molokID INTEGER, molokPos TUPLE, fillPct REAL, timestamp REAL)")
             if table_type == "sim": # only auto generate data if simulations are to be run
-                self.rng = np.random.default_rng(self.seed) # creates a np.random generator-object with specified seed. Use self.rng for randomness
+                self.rng = np.random.default_rng(seed) # creates a np.random generator-object with specified seed. Use self.rng for randomness
                 self.generate_init_data(table_name, num_moloks)
 
         return table_name
@@ -437,12 +436,19 @@ class DataStorage:
             
             self.TCP_handshake_socket.close()
             print(f"Comms ended succesfully. Recieved {msg_counter} datapoints")
+            # ADDED FOR SIM WITH 2 DATASTORAGE INSTANCES AT ONCE!!!
+            self.UDP_recv_socket.close()
+            self.UDP_recv_socket = None
 
         except Exception as e:
             print(f"The following error occured in simDBLogger: {e}")
             print("The thread will now be terminated")
             self.UDP_recv_socket.settimeout(None) # now the socket will block forever, as by default. When thread runs again, timeout is set to n above
             self.TCP_handshake_socket.close()
+
+            # ADDED FOR SIM WITH 2 DATASTORAGE INSTANCES AT ONCE!!!
+            self.UDP_recv_socket.close()
+            self.UDP_recv_socket = None
 
     def startSim(self, ADDR, send_freq: int = 3) -> bool:
         """Uses our protocol called C22-SIM Protocol to contact simulation and handle its responses in a thread. 

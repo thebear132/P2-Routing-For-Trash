@@ -384,8 +384,8 @@ class RoutePlanner:
                  truckAgrs: list = ["int(range(km))", "int(numTrucks)", "int(capacity(kg))", "int(workStart)", "int(workStop)"],
                  time_limit: int = 60,
                  solution_limit = None,
-                 first_solution_strategy: str = "2",
-                 local_search_strategy: str = "",
+                 first_solution_strategy: str = "1",
+                 local_search_strategy: str = "3",
                  initial_routes = None) -> None:
         """
         Executed when initializing a routePlanner-object

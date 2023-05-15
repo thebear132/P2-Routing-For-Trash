@@ -100,7 +100,7 @@ class Simulation:
 
         np.random.seed(seed)    #Set random seed
         # Normal gauss distribution: centre = 10, normal distribution = 3 og Output = 1
-        degreeFilling = np.random.normal(15,3,len(fill_pct)) 
+        degreeFilling = np.random.normal(10,3,len(fill_pct)) 
         Completelist = []
         interval = (24*(60*60))/sendHyp             # How many hours (in seconds) 
         
