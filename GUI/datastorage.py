@@ -69,7 +69,7 @@ class DataStorage:
         else:
             self.main_cur.execute(f"CREATE TABLE {table_name}(ID INTEGER PRIMARY KEY, molokID INTEGER, molokPos TUPLE, fillPct REAL, timestamp REAL)")
             if table_type == "sim": # only auto generate data if simulations are to be run
-                self.rng = np.random.default_rng(self.seed) # creates a np.random generator-object with specified seed. Use self.rng for randomness
+                self.rng = np.random.default_rng(seed) # creates a np.random generator-object with specified seed. Use self.rng for randomness
                 self.generate_init_data(table_name, num_moloks)
 
         return table_name
