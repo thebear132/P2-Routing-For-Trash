@@ -358,7 +358,7 @@ class MasterPlanner:
                 for i, stop in enumerate(route_list):                           # loop over each destination/stop
                     if type(stop) == int:                                       # don't calc on depot
                         visit_time = visit_times_lst[i]                         # find the time that the truck reached the stop/molok
-                        molok_last_emptime = tws[stop][1] - self.added_slack    # find that stop/molok's last possible time before having to be emptied
+                        molok_last_emptime = tws[stop][1] - self.added_slack * 60    # find that stop/molok's last possible time before having to be emptied
 
                         if visit_time > molok_last_emptime:                     # if molok was visited after 100% fillpct
                             print(f"Overfill of molok: {stop} on route: {route_list}")
@@ -462,11 +462,11 @@ class RoutePlanner:
 
         locations = [depotPos] + molokPos
         numMoloks = len(molokPos)
-        molok_ET = time_to_empty_molok
+        molok_ET = time_to_empty_molok * 60 # min to sec
 
         # generalisation on truck speed
         speed_kmh = truckSpeed # km/h
-        speed_mtr_pr_min = (speed_kmh * 1000) / 60 # meters/minute
+        speed_mtr_pr_sec = (speed_kmh * 1000) / 3600 # meters/second
         
         start_time = time.time()
 
@@ -482,7 +482,7 @@ class RoutePlanner:
                 distance_matrix[i][j] = round(distance)
                 distance_matrix[j][i] = round(distance)
 
-                drive_time = round((distance / speed_mtr_pr_min) + molok_ET, 0) # round to whole minutes. OR-Tools requires ints
+                drive_time = round((distance / speed_mtr_pr_sec) + molok_ET, 0) # round to whole seconds. OR-Tools requires ints
                 
                 # mirror entries in main daigonal, so that molok i to j is same as j to i, except from depot(i = 0) to j
                 if i == 0:
@@ -558,7 +558,7 @@ class RoutePlanner:
         self.routing.AddDimension(
             self.transit_callback_index,
             0,  # don't allow waiting time at moloks
-            workhours_in_minutes,  # maximum time per vehicle
+            workhours_in_minutes * 60,  # maximum time per vehicle in seconds
             True,  # Force start cumul to zero meaning trucks start driving immediately.
             dim_name) # dimension name assigned here
         time_dimension = self.routing.GetDimensionOrDie(dim_name)
@@ -697,8 +697,8 @@ class RoutePlanner:
             for pair in zipped_route:
                 if pair[0] != 'depot':                      # only continue of node index not equal to depot
                     true_molok_ID = pair[0]                 # All molok IDs begin from 1, since 0 is reserved for depot. subtract 1 to match DataStorage
-                    empty_time_mins = pair[1]
-                    empty_time_secs = empty_time_mins * 60  # Time in seconds since truck started driving and it stopped to empty molok
+                    empty_time_secs = pair[1]
+                    empty_time_secs = empty_time_secs       # Time in seconds since truck started driving and it stopped to empty molok
                     molok_IDs_and_empty_time.append((true_molok_ID, empty_time_secs))
 
         return molok_IDs_and_empty_time                     # list of tuples of (ID, time in seconds)
@@ -727,17 +727,18 @@ class RoutePlanner:
             for stop_num in range(stops):                       # loop over the length of trucks route
                 node = route_lst[stop_num]                      # molok or depot index (if 0)
                 node_time = route_visit_times[stop_num]         # visit time at node
+                mins_secs = f"{node_time // 60}:{node_time % 60}"
                 node_cumul_load = route_cumul_load[stop_num]    # cumulative load at node
                 node_cumul_dist = route_cumul_dist[stop_num]    # cumulative distance at node
                 node_cumul_dist = node_cumul_dist / 1000        # convert to km
                 
-                route_string += f"{node} ({node_time}) |{node_cumul_dist}| [{node_cumul_load}]"
+                route_string += f"{node} ({mins_secs}) |{node_cumul_dist}| [{node_cumul_load}]"
 
                 if stop_num < stops - 1:                        # add an arrow between nodes
                     route_string += " -> "
                 
                 elif stop_num == stops - 1:                     # add totals to end of route string
-                    route_string += f"\nRoutes total time: {node_time} min \nRoutes total distance: {node_cumul_dist} km \nRoutes total load: {node_cumul_load} kg"
+                    route_string += f"\nRoutes total time: {node_time // 60}:{node_time % 60} min \nRoutes total distance: {node_cumul_dist} km \nRoutes total load: {node_cumul_load} kg"
                     total_time += node_time                     # count total time
                     total_load += node_cumul_load               # count total load
                     total_dist += node_cumul_dist               # count total distance
@@ -751,13 +752,16 @@ class RoutePlanner:
         num_moloks = len(self.data['molokPositions'])
         final_string = f"\n___Key performance indicators___\n\nMoloks emptied: {num_moloks} \n"
         final_string += f"Trucks utilized: {trucks_utilized} \n"
-        final_string += f"Total time spent: {total_time} min \nTotal distance driven: {total_dist} km \nTotal load collected: {total_load} kg \n"
+        final_string += f"Total time spent: {total_time // 60}:{total_time % 60} min \nTotal distance driven: {total_dist} km \nTotal load collected: {total_load} kg \n"
         final_string += f"Average number of moloks pr. route: {num_moloks / trucks_utilized} moloks/route \n"
-        final_string += f"Average time spent pr. route: {total_time / trucks_utilized} min/route \n"
+        avg_secs_pr_route = total_time / trucks_utilized
+        final_string += f"Average time spent pr. route: {int(avg_secs_pr_route // 60)}:{int(avg_secs_pr_route % 60)} min/route \n"
         final_string += f"Average distance driven pr. route: {total_dist / trucks_utilized} km/route \n"
         final_string += f"Average load collected pr. route: {total_load / trucks_utilized} kg/route \n"
 
         print(final_string)
+
+        return route_string, final_string
 
 
     def main(self):
@@ -826,8 +830,10 @@ if __name__ == "__main__":
 
     molok_fillpcts = np.random.normal(70, 7.5, num_moloks)
     avg_grs = np.random.normal(0.1, 0.1, num_moloks)
+    avg_grs = avg_grs / 60 # from min to sec
 
     molok_fillpcts[2] = 100
+
 
     mp = MasterPlanner(600, 2200, (45, 10), molok_pos_list, ttem, molok_fillpcts.tolist(), 500, avg_grs.tolist(), truck_range, num_trucks,
                        truck_capacity, 600, 1400, timelimit, first_solution_strategy, local_search_strategy, num_attempts, max_slack)
@@ -842,5 +848,7 @@ if __name__ == "__main__":
 
     overfill = mp.identify_overfill()
     print(overfill)
+
+    # mp.rp.print_solution(mp.current_best['routes'], mp.current_best['visit_times'], mp.current_best['truck_loads'], mp.current_best['truck_distances'])
 
     exit()

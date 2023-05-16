@@ -43,7 +43,7 @@ class FindStaticRoutes:
     
     def make_master_planner(self, moloks_to_empty):
 
-        time_limit = 20             # seconds
+        time_limit = 3             # seconds
 
         depot_open = 600            # hhmm time
         depot_close = 2200          # hhmm time
@@ -219,6 +219,7 @@ class RunStaticRoutes:
 
         # start driving static routes
         while self.current_cycle <= self.cycles_to_run:     # run cycles_to_run amount of cycles
+            print('\nCycle num:', self.current_cycle)
             for day in self.static_dict:                  # get key in routes dict
 
                 while day != self.current_day:              # sim until days match
@@ -284,6 +285,7 @@ class RunStaticRoutes:
             
             # when a cycle is over, count self.current_cycle up 1
             self.current_cycle += 1
+            self.current_day += 1
 
 if __name__ == '__main__':
 
@@ -297,5 +299,5 @@ if __name__ == '__main__':
     with open(filename, "rb") as file:
         static_dict = pickle.load(file)
 
-    run_stat = RunStaticRoutes(seed, num_moloks, static_dict, 1)
+    run_stat = RunStaticRoutes(seed, num_moloks, static_dict, 3)
     run_stat.master()

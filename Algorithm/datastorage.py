@@ -269,7 +269,7 @@ class DataStorage:
                 return f"No valid sections found for period {period_start} to {period_end}"
             
             # finding avg. growthrate of sections that are part of specified period
-            molok_avg_growthrate = sum_period_growthrates / num_valid_periods
+            molok_avg_growthrate = (sum_period_growthrates / num_valid_periods) / 60 # go from growth/min to growth/sec
             avg_growthrates[key] = molok_avg_growthrate
 
         return avg_growthrates
