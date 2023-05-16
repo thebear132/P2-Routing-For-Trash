@@ -51,7 +51,7 @@ def FigCraft(selectedTable):
     tableType, seed, moloks = getSeedAndMolok(selectedTable)
     a = tmpDS.select_table(selectedTable, seed, moloks)
     if a == False:
-        print(f"{selectedTable} does not exist!")
+        #print(f"{selectedTable} does not exist!")
         return blank_fig()
 
 
@@ -76,7 +76,7 @@ def FigCraft(selectedTable):
                             title='Route planner',
                             zoom=10, #Starts zoom
                             range_color=[0,100],
-                            color_continuous_scale=px.colors.sequential.Blackbody_r,
+                            color_continuous_scale=["LimeGreen", "Gold","Red"], #px.colors.diverging.RdYlGn_r,
                             #width=1280, height=720,
                             size=[1 for i in range(len(df["lon"]))],
                             opacity=1,
@@ -96,7 +96,7 @@ def FigCraft(selectedTable):
     fig.add_trace(go.Scattermapbox(
     mode = "markers",
     lat = [DEPOT_COORDINATES[0]], lon = [DEPOT_COORDINATES[1]],
-    marker = {'size': 20, "color": "green"},
+    marker = {'size': 20, "color": "purple"},
     text = "Depot",textposition = "bottom right", name = "DEPOT"))
 
     return fig
@@ -163,11 +163,19 @@ app.layout = html.Div([
             html.Div(children=[
                 
                 #Plan route
-                html.Button("Plan route", id='planRouteButton', style={"width": "100px"}),
+                html.Button("Plan route", id='planRouteButton', style={"width": "100px", "margin-right": "40px"}),
 
-                #Empty moloks
-                html.Button("Empty moloks", id='emptyMoloks', style={"width": "100px","margin-left": "20px"})
+                #Time limit input
+                dcc.Input(type="text", id="timeLimit", placeholder="Time limit", style={"width": "100px"}),
+                
+                #Number of truck
+                dcc.Input(type="text", id="numTrucks", placeholder="Number of trucks", style={"width": "100px", "margin-top": "10px"}),
+                
+                #First solution strategy
+                dcc.Dropdown(id="fssDropdown", searchable=True, placeholder="First solution strategy", value="AUTOMATIC", style={"width": "100px","margin-top": "5px"}),
 
+                #Local solution strategy 
+                dcc.Dropdown(id="lssDropdown", searchable=True, placeholder="Local search strategy", value="AUTOMATIC", style={"width": "100px","margin-top": "5px"})              
 
                 ])
 
@@ -214,8 +222,8 @@ def StartSim(nrOfClicks, selectTable, IP):
         # tmpDS.simThread.join()
     except Exception as e:
         print(e)
-    print("Done")
-    return blank_fig()
+    tmpDS.join_sim_thread()
+    return FigCraft(selectTable)
 
 
 #Button for updates 
@@ -239,7 +247,8 @@ def Callupdate_scatterMap(selectedTable):
     return fig
 
     
-    
+
+# ______PLOT ROUTES______
 @app.callback(Output("Map1", "figure", allow_duplicate=True),
               Output("routesOutput", "children"),
               Input('planRouteButton', "n_clicks"),
@@ -261,44 +270,51 @@ def DisplayRoutes(n_clicks, select_table):
     
     
     #FILTER (only include if Fill Pct over 40)
-    filteredMoloks = [id for id in range(len(molok_pos_list)) if molok_fillpcts[id] >= 10]
-    print("Valid moloks ->", filteredMoloks)
+    filteredMoloks = [id for id in range(len(molok_pos_list)) if molok_fillpcts[id] >= 80]
+    print("Filtered moloks ->", filteredMoloks)
 
     #Apply filter to other lists
     molok_pos_list = [molok_pos_list[i] for i in filteredMoloks]
     molok_fillpcts = [molok_fillpcts[i] for i in filteredMoloks]
     avg_grs        = [avg_grs[i]        for i in filteredMoloks]
-
-
-    num_trucks = 10
+    
+ 
+    num_trucks = 5         #GUI - slider
     ttem = 5                #Time it takes to empty molok
     truck_range = 100
     truck_capacity = 3000
-    timelimit = 20
-    Fss = "1"
-    Lss = "3"
+    timelimit = 2          #GUI - input
+    Fss = "1"               #GUi - dropdown
+    Lss = "3"               #GUI - dropdown
 
-    try:
-        mp = MasterPlanner(600, 2200, molok_pos_list, ttem, molok_fillpcts, 500, avg_grs, truck_range, num_trucks, truck_capacity, 600, 1400, timelimit, first_solution_strategy=Fss, local_search_strategy=Lss)
-        pass
-    except Exception as e:
-        print(e)
 
-    #routes =  [['depot', 0, 2, 3, 1, 4, 'depot'], ['depot', 'depot']]
-    #print("Routes:", routes)
+   
+    mp = MasterPlanner(600, 2200, molok_pos_list, ttem, molok_fillpcts, 500, avg_grs, truck_range, num_trucks, truck_capacity, 600, 1400, timelimit, first_solution_strategy=Fss, local_search_strategy=Lss)
+    
 
+        
     print("[!] Planning routes -> ", end="")
     sys.stdout = open(os.devnull, 'w')      #Disable print()
     mp.master()
     routes = mp.current_best["routes"]
     sys.stdout = sys.__stdout__             #Enable print()
     print(routes)
-    print(mp.rp.data["time_matrix"])
-    print(mp.rp.data["distance_matrix"])
     
+    emptiedMoloks = mp.empty_molok_times
     
+    #Empty moloks + converting
+    emptyMoloks_C = []
+    for i in emptiedMoloks:     # [(1, 234), (3, 4123)]
+        emptyMoloks_C.append((filteredMoloks[i[0]], 1))       
+    
+    #Get max() epoch time
+    latest_rows_data = dataS.fetch_latest_rows("main")
+    
+    max_epoch_time = max(list(zip(*latest_rows_data))[4])
+    dataS.set_fillpcts_to_0(emptyMoloks_C, float(max_epoch_time))
 
-    convertedRoutes = []
+    # Create converted routes for GUI
+    convertedRoutes = []    
     for route in routes:
         c_route = []
         for molok in route:
@@ -306,20 +322,19 @@ def DisplayRoutes(n_clicks, select_table):
                 c_route.append("depot")
             else:
                 c_route.append(filteredMoloks[molok])
-        
         convertedRoutes.append(c_route)
+    #print("ConvertedRoutes", convertedRoutes)
+
+
+
     
-    #convertedRoutes = [['depot', 1, 4, 7, 2, 9, 'depot'], ['depot', 'depot']]
-    print(convertedRoutes)
 
     routeFormattedOutput = ""
     for i, route in enumerate(convertedRoutes):
-        routeFormattedOutput += f"**Route {i}** | "
+        routeFormattedOutput += f"**Truck {i}** | "
         for place in route:
-            routeFormattedOutput += str(place) + " --> "
+            routeFormattedOutput +=  " --> " + str(place)
         routeFormattedOutput += "  \n"
-
-    print(routeFormattedOutput)
 
     
     # ADD ROUTE TRACES
@@ -344,6 +359,8 @@ def DisplayRoutes(n_clicks, select_table):
             lat = Rlat,
             line = {"width" : 3}))
     
+
+
     return fig, routeFormattedOutput
 
 
