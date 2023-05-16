@@ -18,7 +18,7 @@ a = (os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 + '/Server/')
 sys.path.append(a)
 from datastorage import DataStorage
-from Simulation import Simulation
+#from Simulation import Simulation
 
 b = (os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 + '/Algorithm/')
@@ -119,7 +119,7 @@ app.layout = html.Div([
             html.Div([
                 #slider
                 html.Label(html.B("Moloks: ")),
-                dcc.Slider(0, 12, 1, value=0, id='nrMoloksSlider'),
+                dcc.Slider(0, 100, 10, value=0, id='nrMoloksSlider'),
                 #Radio items
                 dcc.RadioItems(["Simulation", "SigFox"], "Simulation", id="radioItems", inline=True, style={"margin-right": "30px","padding": "5px"}),
 
@@ -142,14 +142,14 @@ app.layout = html.Div([
             ], style={"display": "flex", "flex-direction": "row", 'width': '40vw'}),
             
             dcc.Markdown("___", style={"margin-top": "20px"}),  # HORIZONTAL LINE DIVIDER
-            html.Br(),
+            #html.Br(),
             html.Div(id='my-output'),
 
             html.H2("Start simulation"),
             html.Div(children=[
                 
                 #IP-address
-                dcc.Input(type="text", id="IPTextInput", value="127.0.0.1", style={"width": "100px", "margin-right": "30px"}),
+                dcc.Input(type="text", id="IPTextInput", value="192.168.137.234", style={"width": "100px", "margin-right": "30px"}),
 
                 #Start sim / get sigfox
                 html.Button("Start simulation", id='gatherDataButton', style={"width": "100px"}),
@@ -157,7 +157,7 @@ app.layout = html.Div([
 
             ], style={"display": "flex", "flex-direction": "row", 'width': '40vw'}),
                 dcc.Markdown("___", style={"margin-top": "20px"}),  # HORIZONTAL LINE DIVIDER
-                html.Br(),     
+                #html.Br(),     
                    
             html.H2("Route planner"),
             html.Div(children=[
@@ -166,16 +166,22 @@ app.layout = html.Div([
                 html.Button("Plan route", id='planRouteButton', style={"width": "100px", "margin-right": "40px"}),
 
                 #Time limit input
-                dcc.Input(type="text", id="timeLimit", placeholder="Time limit", style={"width": "100px"}),
+                dcc.Input(type="number", id="timeLimit", placeholder="Time limit", style={"width": "100px"}),
                 
                 #Number of truck
-                dcc.Input(type="text", id="numTrucks", placeholder="Number of trucks", style={"width": "100px", "margin-top": "10px"}),
+                dcc.Input(type="text", id="numTrucks", placeholder="Number of trucks", value=5, style={"width": "100px", "margin-top": "10px"}),
                 
+                #Waste limit pct
+                dcc.Input(type = "number", id='filter_pct', placeholder= "Waste limit pct." ),
+
                 #First solution strategy
-                dcc.Dropdown(id="fssDropdown", searchable=True, placeholder="First solution strategy", value="AUTOMATIC", style={"width": "100px","margin-top": "5px"}),
+                dcc.Dropdown(id="fssDropdown", searchable=True, placeholder="First solution strategy", value=1, options=[1, 2, 3], style={"width": "100px","margin-top": "5px"}),
 
                 #Local solution strategy 
-                dcc.Dropdown(id="lssDropdown", searchable=True, placeholder="Local search strategy", value="AUTOMATIC", style={"width": "100px","margin-top": "5px"})              
+                dcc.Dropdown(id="lssDropdown", searchable=True, placeholder="Local search strategy", value=1, options=[1, 2, 3, 4], style={"width": "100px","margin-top": "5px"}),
+                
+        
+                          
 
                 ])
 
@@ -250,11 +256,17 @@ def Callupdate_scatterMap(selectedTable):
 
 # ______PLOT ROUTES______
 @app.callback(Output("Map1", "figure", allow_duplicate=True),
-              Output("routesOutput", "children"),
-              Input('planRouteButton', "n_clicks"),
-              State('tableDropdown', "value"), prevent_initial_call=True)
-def DisplayRoutes(n_clicks, select_table):
-    print("@ DisplayRoutes", select_table)
+            Output("routesOutput", "children"),
+            Input('planRouteButton', "n_clicks"),
+            State('tableDropdown', "value"),
+            State('timeLimit', "value"),
+            State('numTrucks', "value"),
+            State('fssDropdown', "value"),
+            State('lssDropdown', "value"),
+            State('filter_pct', "value"),
+            prevent_initial_call=True)
+def DisplayRoutes(n_clicks, select_table, timeLimit, numTrucks, fss, lss, waste_limit):
+    print("@ DisplayRoutes", select_table, timeLimit, numTrucks, fss, lss, waste_limit)
     fig = FigCraft(select_table)
 
     molok_pos_list = list(zip(fig.data[0]["lat"], fig.data[0]["lon"]))
@@ -266,39 +278,38 @@ def DisplayRoutes(n_clicks, select_table):
     molok_est_data = dataS.lin_reg_sections()
     
     avg_grs = dataS.avg_growth_over_period(molok_est_data, period_start = 0, period_end = 999999999999999)  #lol
-    avg_grs = avg_grs * 60      #Growth/min
-    
-    
     #FILTER (only include if Fill Pct over 40)
-    filteredMoloks = [id for id in range(len(molok_pos_list)) if molok_fillpcts[id] >= 80]
+    filteredMoloks = [id for id in range(len(molok_pos_list)) if molok_fillpcts[id] >= waste_limit]
     print("Filtered moloks ->", filteredMoloks)
 
+    # Error handling
+    if len(filteredMoloks) == 0:
+        return fig, "Ingen valide molokker"
+    if type(avg_grs) == str:
+        return fig, "Not enough measurements! (Minimum of 2 required to perform linear regression)"
+    
     #Apply filter to other lists
     molok_pos_list = [molok_pos_list[i] for i in filteredMoloks]
     molok_fillpcts = [molok_fillpcts[i] for i in filteredMoloks]
     avg_grs        = [avg_grs[i]        for i in filteredMoloks]
     
- 
-    num_trucks = 5         #GUI - slider
+    
     ttem = 5                #Time it takes to empty molok
     truck_range = 100
     truck_capacity = 3000
-    timelimit = 2          #GUI - input
-    Fss = "1"               #GUi - dropdown
-    Lss = "3"               #GUI - dropdown
-
-
-   
-    mp = MasterPlanner(600, 2200, molok_pos_list, ttem, molok_fillpcts, 500, avg_grs, truck_range, num_trucks, truck_capacity, 600, 1400, timelimit, first_solution_strategy=Fss, local_search_strategy=Lss)
-    
-
+    numberOfAttempts = 10
+    MaximumSlack = 30
+    print("Creating MasterPlanner object")
+    mp = MasterPlanner(600, 2200, molok_pos_list, ttem, molok_fillpcts, 500, avg_grs, truck_range, numTrucks, truck_capacity, 600, 1400, timeLimit, first_solution_strategy=str(fss), local_search_strategy=str(lss), num_attempts=numberOfAttempts, max_slack=MaximumSlack)
         
     print("[!] Planning routes -> ", end="")
     sys.stdout = open(os.devnull, 'w')      #Disable print()
     mp.master()
+    #print(mp.rp.data)
     routes = mp.current_best["routes"]
     sys.stdout = sys.__stdout__             #Enable print()
     print(routes)
+    print(mp.empty_molok_times)
     
     emptiedMoloks = mp.empty_molok_times
     
