@@ -15,6 +15,9 @@ TO-TEST:
 
 TO-DO:
 
+ - Skriv test-kode der kan outputte tabel med relevant data??? - kunne være fucking sej black box test vel (black box siden vi ikke
+                                                                                                            kender OR-Tools så godt)
+
  - skal kunne:
     - returnere bedste ruter til sidst                              DONE
     - returnere hvilke molokker der blev tømt og hvornår            DONE
@@ -40,7 +43,8 @@ class MasterPlanner:
     def __init__(self, depot_open: int, depot_close: int, depot_pos: tuple, molok_pos_list: list, tte_molok: int,
                  fill_pcts: list, molok_capacity: int, molok_est_growthrates: list, truck_range: int, num_trucks: int,
                  truck_capacity: int, work_start: int, work_stop: int, time_limit_seconds: int,
-                 first_solution_strategy: int = "2", local_search_strategy: int = "") -> None:
+                 first_solution_strategy: int = "1", local_search_strategy: int = "3", num_attempts: int = 10,
+                 max_slack: int = 30) -> None:
         """
         contains all inputs and meta parameters
         
@@ -56,7 +60,7 @@ class MasterPlanner:
         - tte_molok: time it takes to empty a molok in minutes
         - fill_pcts: list of fill-percentages for each molok as floats. Used to calc actual weight in each molok
         - molok_capacity: weight (kg) capacity of each molok. Used to calc actual weight in each molok
-        - molok_est_growthrates: list of estimated linear growthrate of each molok
+        - molok_est_growthrates: list of estimated linear growthrate of each molok in minutes
 
         - truck_range: Range in kilometers of all trucks
         - num_trucks: number of trucks in total
@@ -75,6 +79,8 @@ class MasterPlanner:
             - '3' = GUIDED_LOCAL_SEARCH
             - '4' = TABU_SEARCH
 
+        - num_attempts: The number of attempts that the master planner will try to plan routes using the route planner
+        - max_slack: maximum amount of slack added to timewindows. Should be a multiple of 10 but not required.
         """
 
         # --- depot vars ---
@@ -100,7 +106,7 @@ class MasterPlanner:
         self.first_solution_strat = first_solution_strategy
         self.local_search_strat = local_search_strategy
         self.try_num = 1                                    # counts amount of RoutePlanner tries
-        self.goal_tries = 10                                # goal for 'self.try_num' to be incremented to
+        self.goal_tries = num_attempts                      # goal for 'self.try_num' to be incremented to
         self.current_best = {                               # save current best solution to dictionary
             "routes": [],
             "visit_times": [],
@@ -120,7 +126,7 @@ class MasterPlanner:
 
         self.added_slack = 0                                # slack added to time windows (in minutes)
         self.slack_increment = 10                           # amount to increment slack by each time (in minutes)
-        self.slack_max = 3 * self.slack_increment           # max slack. If reached, drop a molok
+        self.slack_max = max_slack                          # max slack. If reached, drop a molok
 
         # --- time vars ---
         self.time_limit = time_limit_seconds                # seconds for MasterPlanner to try to optimize routes
@@ -152,10 +158,6 @@ class MasterPlanner:
                         break       # moloks are only visited once, so break out of loop when found.
 
         return routes
-
-    def showcase_stats(self):
-        """returns all attributes of object of class 'MasterPlanner'"""
-        pass
 
     def drop_molok(self):
         """drops molok that has the largest sum of distances to other moloks.
@@ -228,16 +230,22 @@ class MasterPlanner:
         if self.current_best['routes']:
 
             # remove depot(index 0) from routes or OR-Tools will return None from initial routes
-            initial_routes = []                         
+            initial_routes = []
+            # print("routes pre sorting: ", self.current_best['routes'])
             for route in self.current_best['routes']:
-                route.pop(0)        # remove depot at start of route
-                route.pop(-1)       # remove depot at end of route
+                if 0 not in route:      # sometimes routes are already without the depots (bug when adding and halving slack)
+                    pass                # don't pop from it. Just pass instead
+                else:
+                    route.pop(0)        # remove depot at start of route
+                    route.pop(-1)       # remove depot at end of route
                 initial_routes.append(route)
             print("Passing current best routes into route planner")
 
-        self.rp = RoutePlanner(depot_args, molok_args, truck_args, timelimit_for_curr_try,
-                    first_solution_strategy=self.first_solution_strat, local_search_strategy=self.local_search_strat,
-                    initial_routes=initial_routes)
+        self.rp = RoutePlanner(depot_args, molok_args, truck_args,
+                               time_limit=timelimit_for_curr_try,
+                               first_solution_strategy=self.first_solution_strat,
+                               local_search_strategy=self.local_search_strat,
+                               initial_routes=initial_routes)
         
         return True
 
@@ -251,6 +259,8 @@ class MasterPlanner:
 
         # get routes to list of lists
         routes = self.rp.get_routes(solution, self.rp.routing, self.rp.manager)
+
+        # print(f"Got routes from solver: {routes}")
 
         # get cumulative data from routes and put into lists of lists
         time_const = self.rp.routing.GetDimensionOrDie(self.rp.time_windows_constraint)
@@ -270,7 +280,7 @@ class MasterPlanner:
         """
         while self.try_num <= self.goal_tries:
 
-            print(f"\n---------- gen {self.try_num} of {self.goal_tries} ----------")
+            print(f"\n---------- attempt {self.try_num} of {self.goal_tries} ----------")
 
             success = self.prep_rp()
             if success:
@@ -281,7 +291,7 @@ class MasterPlanner:
             # solver status = 0 means not solved yet, 1 means solved, 2 means no solution found,
             # 3 means timeout, 4 means invalid model
             if solver_status != 1:                          # check if solution exists
-                print(f"\nNo solution found. Taking nescessary actions. beep boop, Bobby\n")
+                print(f"\nNo solution found. Taking nescessary actions\n")
 
                 # take action if invalid model (4). Will end route planning and user will have to restart with new model
                 if solver_status == 4:
@@ -315,16 +325,55 @@ class MasterPlanner:
             self.current_best['truck_loads'] = truck_loads
             self.current_best['truck_distances'] = truck_distances
 
-            self.rp.print_solution(self.current_best['routes'], self.current_best['visit_times'], self.current_best['truck_loads'], self.current_best['truck_distances'])
+            # self.rp.print_solution(self.current_best['routes'], self.current_best['visit_times'], self.current_best['truck_loads'], self.current_best['truck_distances'])
 
-            print(self.rp.data)
+            # print(self.rp.data)
 
-            print(f"actions taken: {self.actions_taken}")
+            # print(f"actions taken: {self.actions_taken}")
 
             # print(f"current_best routes: {self.current_best}")
 
-            self.added_slack/2                      # slack is halved if route is found
+            if self.try_num != self.goal_tries and self.added_slack > 0:        # don't halve slack when done
+                self.added_slack = int(self.added_slack/2)                      # slack is halved if route is found
+                print(f"Solution found - halving slack and rounding down. Updated slack to: {self.added_slack}")
             self.try_num += 1                       # increment count
+
+    def identify_overfill(self):
+        """Returns a list of tuples. Each tuple contains a molok id, its timewindow, when it was visited and its fillpct
+        at visit time"""
+        overfilled = []
+        if self.added_slack > 0:    # only use function if slack is added
+            
+            routes = self.current_best['routes']
+            visit_times = self.current_best['visit_times']
+            gwrs = self.rp.data['molok_est_growthrates']
+
+            tws = self.rp.data['timeWindows']
+            tws.pop(0)          # remove depot tw at index 0
+
+
+            for route_id, route_list in enumerate(routes):  # loop over each route and save its id (route 0, 1,...,n) and the route itself
+                visit_times_lst = visit_times[route_id]
+
+                for i, stop in enumerate(route_list):                           # loop over each destination/stop
+                    if type(stop) == int:                                       # don't calc on depot
+                        visit_time = visit_times_lst[i]                         # find the time that the truck reached the stop/molok
+                        molok_last_emptime = tws[stop][1] - self.added_slack * 60    # find that stop/molok's last possible time before having to be emptied
+
+                        if visit_time > molok_last_emptime:                     # if molok was visited after 100% fillpct
+                            print(f"Overfill of molok: {stop} on route: {route_list}")
+                            molok_gwr = gwrs[stop]                              # find molok growthrate
+                            fill_w_visited = 100 + (visit_time * molok_gwr)     # calc fillpct when molok was visited
+                            print(f"it had fillpct: {fill_w_visited} when visited")
+
+                            overfilled.append((stop, fill_w_visited))
+        
+        return overfilled
+
+
+
+            
+
 
 
 
@@ -334,8 +383,9 @@ class RoutePlanner:
                  molokAgrs: list = ["list[molokPositions]", "int(emptying time)", "list[fillPcts]", "int(molokCapacity(kg))", "list[estimatedLinearGrowthrates]", "int(slack)"],
                  truckAgrs: list = ["int(range(km))", "int(numTrucks)", "int(capacity(kg))", "int(workStart)", "int(workStop)"],
                  time_limit: int = 60,
-                 first_solution_strategy: str = "2",
-                 local_search_strategy: str = "",
+                 solution_limit = None,
+                 first_solution_strategy: str = "1",
+                 local_search_strategy: str = "3",
                  initial_routes = None) -> None:
         """
         Executed when initializing a routePlanner-object
@@ -364,7 +414,10 @@ class RoutePlanner:
             "4": routing_enums_pb2.LocalSearchMetaheuristic.TABU_SEARCH
         }
 
-        self.time_limit = time_limit        # limit in seconds for solver to return best found set of routes
+        self.time_limit = time_limit            # limit in seconds for solver to return best found set of routes
+
+        # only added for testing algorithms
+        self.solution_limit = solution_limit    # if solution limit is provided, add it (default None)
 
         self.first_solution_strategy = self.first_solution_strats[first_solution_strategy]
 
@@ -401,19 +454,19 @@ class RoutePlanner:
         return manager
 
     def time_and_dist_matrices(self, depotPos, molokPos, time_to_empty_molok: int, truckSpeed=50) -> any:
-        """creates the time-matrix based on assumption of avg. speed of truck and haversine distance between points
-        also adds the time it takes to empty a molok. Distance matrix is created with haversine distance as well.
+        """creates the time-matrix based on assumption of avg. speed of truck and haversine distance between points.
+        Also adds the time it takes to empty a molok. Distance matrix is created with haversine distance as well.
         Empty time is applied at beginning of transit between points as it results in a truck being able to reach a molok
         before time window closes and then empty it instead of the other way around.
         This means that empty time is NOT applied from depot to molok, but only from molok to molok or molok to depot"""
 
         locations = [depotPos] + molokPos
         numMoloks = len(molokPos)
-        molok_ET = time_to_empty_molok
+        molok_ET = time_to_empty_molok * 60 # min to sec
 
         # generalisation on truck speed
         speed_kmh = truckSpeed # km/h
-        speed_mtr_pr_min = (speed_kmh * 1000) / 60 # meters/minute
+        speed_mtr_pr_sec = (speed_kmh * 1000) / 3600 # meters/second
         
         start_time = time.time()
 
@@ -429,7 +482,7 @@ class RoutePlanner:
                 distance_matrix[i][j] = round(distance)
                 distance_matrix[j][i] = round(distance)
 
-                drive_time = round((distance / speed_mtr_pr_min) + molok_ET, 0) # round to whole minutes. OR-Tools requires ints
+                drive_time = round((distance / speed_mtr_pr_sec) + molok_ET, 0) # round to whole seconds. OR-Tools requires ints
                 
                 # mirror entries in main daigonal, so that molok i to j is same as j to i, except from depot(i = 0) to j
                 if i == 0:
@@ -458,6 +511,7 @@ class RoutePlanner:
         data['molokPositions'] = molokArgs[0]
         data['molokEmptyTime'] = molokArgs[1]
         data['molokFillPcts'] = molokArgs[2]
+        data['molok_est_growthrates'] = molokArgs[4]
         data['molokCapacity'] = molokArgs[3]
         # List of kg trash in each molok: pct * max capacity = current weight. OR-Tools only accepts ints, so value is rounded
         molok_demands = [round(i/100 * molokArgs[3]) for i in molokArgs[2]]
@@ -504,7 +558,7 @@ class RoutePlanner:
         self.routing.AddDimension(
             self.transit_callback_index,
             0,  # don't allow waiting time at moloks
-            workhours_in_minutes,  # maximum time per vehicle
+            workhours_in_minutes * 60,  # maximum time per vehicle in seconds
             True,  # Force start cumul to zero meaning trucks start driving immediately.
             dim_name) # dimension name assigned here
         time_dimension = self.routing.GetDimensionOrDie(dim_name)
@@ -641,10 +695,10 @@ class RoutePlanner:
             zipped_route = list(zip(routes[route_num], visit_times[route_num]))
 
             for pair in zipped_route:
-                if pair[0] != 0 and pair[0] != 'depot':      # only continue of node index not equal to depot
+                if pair[0] != 'depot':                      # only continue of node index not equal to depot
                     true_molok_ID = pair[0]                 # All molok IDs begin from 1, since 0 is reserved for depot. subtract 1 to match DataStorage
-                    empty_time_mins = pair[1]
-                    empty_time_secs = empty_time_mins * 60  # Time in seconds since truck started driving and it stopped to empty molok
+                    empty_time_secs = pair[1]
+                    empty_time_secs = empty_time_secs       # Time in seconds since truck started driving and it stopped to empty molok
                     molok_IDs_and_empty_time.append((true_molok_ID, empty_time_secs))
 
         return molok_IDs_and_empty_time                     # list of tuples of (ID, time in seconds)
@@ -673,17 +727,18 @@ class RoutePlanner:
             for stop_num in range(stops):                       # loop over the length of trucks route
                 node = route_lst[stop_num]                      # molok or depot index (if 0)
                 node_time = route_visit_times[stop_num]         # visit time at node
+                mins_secs = f"{node_time // 60}:{node_time % 60}"
                 node_cumul_load = route_cumul_load[stop_num]    # cumulative load at node
                 node_cumul_dist = route_cumul_dist[stop_num]    # cumulative distance at node
                 node_cumul_dist = node_cumul_dist / 1000        # convert to km
                 
-                route_string += f"{node} ({node_time}) |{node_cumul_dist}| [{node_cumul_load}]"
+                route_string += f"{node} ({mins_secs}) |{node_cumul_dist}| [{node_cumul_load}]"
 
                 if stop_num < stops - 1:                        # add an arrow between nodes
                     route_string += " -> "
                 
                 elif stop_num == stops - 1:                     # add totals to end of route string
-                    route_string += f"\nRoutes total time: {node_time} min \nRoutes total distance: {node_cumul_dist} km \nRoutes total load: {node_cumul_load} kg"
+                    route_string += f"\nRoutes total time: {node_time // 60}:{node_time % 60} min \nRoutes total distance: {node_cumul_dist} km \nRoutes total load: {node_cumul_load} kg"
                     total_time += node_time                     # count total time
                     total_load += node_cumul_load               # count total load
                     total_dist += node_cumul_dist               # count total distance
@@ -693,17 +748,20 @@ class RoutePlanner:
 
             print(route_string)
         
-        # --- key values ---
+        # --- key performance indicators ---
         num_moloks = len(self.data['molokPositions'])
-        final_string = f"\n___Key numbers___\n\nMoloks emptied: {num_moloks} \n"
+        final_string = f"\n___Key performance indicators___\n\nMoloks emptied: {num_moloks} \n"
         final_string += f"Trucks utilized: {trucks_utilized} \n"
-        final_string += f"Total time spent: {total_time} min \nTotal distance driven: {total_dist} km \nTotal load collected: {total_load} kg \n"
+        final_string += f"Total time spent: {total_time // 60}:{total_time % 60} min \nTotal distance driven: {total_dist} km \nTotal load collected: {total_load} kg \n"
         final_string += f"Average number of moloks pr. route: {num_moloks / trucks_utilized} moloks/route \n"
-        final_string += f"Average time spent pr. route: {total_time / trucks_utilized} min/route \n"
+        avg_secs_pr_route = total_time / trucks_utilized
+        final_string += f"Average time spent pr. route: {int(avg_secs_pr_route // 60)}:{int(avg_secs_pr_route % 60)} min/route \n"
         final_string += f"Average distance driven pr. route: {total_dist / trucks_utilized} km/route \n"
         final_string += f"Average load collected pr. route: {total_load / trucks_utilized} kg/route \n"
 
         print(final_string)
+
+        return route_string, final_string
 
 
     def main(self):
@@ -717,7 +775,13 @@ class RoutePlanner:
             print("applying metaheuristics")
             search_parameters.local_search_metaheuristic = (self.local_search_strategy)
 
-        search_parameters.time_limit.seconds = self.time_limit
+        if self.solution_limit != None:     # if solution limit provided, use that instead of time limit (really only for testing)
+            search_parameters.solution_limit = self.solution_limit
+            print(f"Using specified solution limit: {self.solution_limit}")
+
+        else:
+            print(f"Using specified timelimit: {self.time_limit}")
+            search_parameters.time_limit.seconds = self.time_limit
 
         # If initial routes exist, solve from that standpoint
         if self.data['initial_routes'] != None:
@@ -745,12 +809,14 @@ if __name__ == "__main__":
     num_trucks = 2
     ttem = 5                                            # time to empty molok
     num_moloks = 3
-    truck_range = 15
+    truck_range = 150
     truck_capacity = 3000
-    timelimit = 20
-    first_solution_strategy = "3"
+    timelimit = 15
+    first_solution_strategy = "1"
     local_search_strategy = "3"
     seed = 20
+    num_attempts = 10
+    max_slack = 30
     np.random.seed(seed=seed)
     
     # molok_pos_list = [(45, 11), (43.5, 10), (44, 11)]
@@ -763,10 +829,14 @@ if __name__ == "__main__":
         molok_pos_list.append(tuple(pos))
 
     molok_fillpcts = np.random.normal(70, 7.5, num_moloks)
-    avg_grs = np.random.normal(0.1, 0.01, num_moloks)
+    avg_grs = np.random.normal(0.1, 0.1, num_moloks)
+    avg_grs = avg_grs / 60 # from min to sec
+
+    molok_fillpcts[2] = 100
+
 
     mp = MasterPlanner(600, 2200, (45, 10), molok_pos_list, ttem, molok_fillpcts.tolist(), 500, avg_grs.tolist(), truck_range, num_trucks,
-                       truck_capacity, 600, 1400, timelimit, first_solution_strategy, local_search_strategy)
+                       truck_capacity, 600, 1400, timelimit, first_solution_strategy, local_search_strategy, num_attempts, max_slack)
 
     
     mp.master()
@@ -774,6 +844,11 @@ if __name__ == "__main__":
     stop_time =time.time()
 
     time_diff = mp.max_time - stop_time
-    print(time_diff)
+    print(f"Finished planning with seconds left: {time_diff}")
+
+    overfill = mp.identify_overfill()
+    print(overfill)
+
+    # mp.rp.print_solution(mp.current_best['routes'], mp.current_best['visit_times'], mp.current_best['truck_loads'], mp.current_best['truck_distances'])
 
     exit()
