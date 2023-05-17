@@ -322,7 +322,7 @@ def DisplayRoutes(n_clicks, select_table, timeLimit, numTrucks, fss, lss, waste_
     latest_rows_data = dataS.fetch_latest_rows("main")
     
     max_epoch_time = max(list(zip(*latest_rows_data))[4])
-    #dataS.set_fillpcts_to_0(emptyMoloks_C, float(max_epoch_time))
+    dataS.set_fillpcts_to_0(emptyMoloks_C, float(max_epoch_time))
 
     # Create converted routes for GUI
     convertedRoutes = []    

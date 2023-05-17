@@ -266,6 +266,7 @@ class MasterPlanner:
             routes = self.current_best['routes']
             visit_times = self.current_best['visit_times']
             gwrs = self.rp.data['molok_est_growthrates']
+            fill_pcts = self.rp.data['molokFillPcts']
 
             tws = self.rp.data['timeWindows']
             tws.pop(0)          # remove depot tw at index 0
@@ -281,7 +282,8 @@ class MasterPlanner:
                         if visit_time > molok_last_emptime:                     # if molok was visited after 100% fillpct
                             #print(f"Overfill of molok: {stop} on route: {route_list}")
                             molok_gwr = gwrs[stop]                              # find molok growthrate
-                            fill_w_visited = 100 + (visit_time * molok_gwr)     # calc fillpct when molok was visited
+                            molok_fillpct = fill_pcts[stop]
+                            fill_w_visited = molok_fillpct + (visit_time * molok_gwr)     # calc fillpct when molok was visited
                             #print(f"it had fillpct: {fill_w_visited} when visited")
 
                             overfilled.append((stop, fill_w_visited))
