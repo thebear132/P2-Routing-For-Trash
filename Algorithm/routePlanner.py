@@ -37,10 +37,11 @@ import support_functions as sf
 
 class MasterPlanner:
 
-    def __init__(self, depot_open: int, depot_close: int, depot_pos: tuple, molok_pos_list: list, tte_molok: int,
+    def __init__(self, depot_open: int, depot_close: int, molok_pos_list: list, tte_molok: int,
                  fill_pcts: list, molok_capacity: int, molok_est_growthrates: list, truck_range: int, num_trucks: int,
-                 truck_capacity: int, work_start: int, work_stop: int, time_limit_seconds: int,
-                 first_solution_strategy: int = "1", local_search_strategy: int = "3", num_attempts: int = 10) -> None:
+                 truck_capacity: int, work_start: int, work_stop: int, time_limit_seconds: int, depot_pos: tuple = 
+                 (57.0257998,9.9194714), first_solution_strategy: int = "1", local_search_strategy: int = "3",
+                 num_attempts: int = 10) -> None:
         """
         contains all inputs and meta parameters
         
@@ -50,7 +51,6 @@ class MasterPlanner:
         after depot opens
         - depot_close: hhmm (h=hour, m=minute) format of time. 16:00 o'clock is inputted as 1600. Trucks must return to depot
         before it closes
-        - depot_pos: coordinate position of depot in decimal degrees as tuple(lattitude, longitude)
 
         - molok_pos_list: list of tuples containing molok positions in decimal degrees (lattitude, longitude)
         - tte_molok: time it takes to empty a molok in minutes
@@ -65,6 +65,8 @@ class MasterPlanner:
         - work_stop: hhmm (h=hour, m=minute) format of time. Latest time that trucks need to be back at the depot at
 
         - time_limit_seconds: time limit in seconds. Amount of time MasterPlanner has to optimize routes
+        - depot_pos: coordinate position of depot in decimal degrees as tuple(lattitude, longitude). Defaults to Aalborg Municipality's
+        depot location
         - first_solution_strategy: index of algorithm to use. Choose between:
             - '1' = AUTOMATIC
             - '2' = PATH_CHEAPEST_ARC
