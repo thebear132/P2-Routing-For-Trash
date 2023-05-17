@@ -166,23 +166,22 @@ app.layout = html.Div([
                 html.Button("Plan route", id='planRouteButton', style={"width": "100px", "margin-right": "40px"}),
 
                 #Time limit input
-                dcc.Input(type="number", id="timeLimit", placeholder="Time limit", style={"width": "100px"}),
+                dcc.Input(type="number", id="timeLimit", value=20, placeholder="Time limit", style={"width": "100px"}),
                 
                 #Number of truck
-                dcc.Input(type="text", id="numTrucks", placeholder="Number of trucks", value=5, style={"width": "100px", "margin-top": "10px"}),
+                dcc.Input(type="text", id="numTrucks", placeholder="Number of trucks", value=61, style={"width": "100px", "margin-top": "10px"}),
                 
                 #Waste limit pct
-                dcc.Input(type = "number", id='filter_pct', placeholder= "Waste limit pct." ),
+                dcc.Input(type="number", id='filter_pct', value=80, placeholder= "Waste limit pct."),
+
+                # Number of attempts
+                dcc.Input(type="number", id='numberOfAttempts', value=10, placeholder= "Number of attempts"),
 
                 #First solution strategy
                 dcc.Dropdown(id="fssDropdown", searchable=True, placeholder="First solution strategy", value=1, options=[1, 2, 3], style={"width": "100px","margin-top": "5px"}),
 
                 #Local solution strategy 
-                dcc.Dropdown(id="lssDropdown", searchable=True, placeholder="Local search strategy", value=1, options=[1, 2, 3, 4], style={"width": "100px","margin-top": "5px"}),
-                
-        
-                          
-
+                dcc.Dropdown(id="lssDropdown", searchable=True, placeholder="Local search strategy", value=3, options=[1, 2, 3, 4], style={"width": "100px","margin-top": "5px"}),
                 ])
 
         ])
@@ -298,19 +297,18 @@ def DisplayRoutes(n_clicks, select_table, timeLimit, numTrucks, fss, lss, waste_
     truck_range = 100
     truck_capacity = 3000
     numberOfAttempts = 10
-    MaximumSlack = 30
     print("Creating MasterPlanner object")
-    mp = MasterPlanner(600, 2200, molok_pos_list, ttem, molok_fillpcts, 500, avg_grs, truck_range, numTrucks, truck_capacity, 600, 1400, timeLimit, first_solution_strategy=str(fss), local_search_strategy=str(lss), num_attempts=numberOfAttempts, max_slack=MaximumSlack)
+    mp = MasterPlanner(600, 2200, molok_pos_list, int(ttem), molok_fillpcts, 500, avg_grs, int(truck_range), int(numTrucks), int(truck_capacity), 600, 1400, int(timeLimit), first_solution_strategy=str(fss), local_search_strategy=str(lss), num_attempts=int(numberOfAttempts))
         
     print("[!] Planning routes -> ", end="")
     sys.stdout = open(os.devnull, 'w')      #Disable print()
     mp.master()
-    #print(mp.rp.data)
     routes = mp.current_best["routes"]
     sys.stdout = sys.__stdout__             #Enable print()
     print(routes)
     print(mp.empty_molok_times)
-    
+    print(mp.rp.routing.status())
+
     emptiedMoloks = mp.empty_molok_times
     
     #Empty moloks + converting
