@@ -109,7 +109,8 @@ app.layout = html.Div([
         html.Div([
             
             dcc.Graph(id="Map1", style={'width': '60vw', 'height': '85vh'}),
-            dcc.Markdown("", id="routesOutput")
+            dcc.Markdown("", id="routesOutput"),
+            dcc.Markdown("", id="KPIField")
             ]),
         
         
@@ -149,7 +150,7 @@ app.layout = html.Div([
             html.Div(children=[
                 
                 #IP-address
-                dcc.Input(type="text", id="IPTextInput", value="192.168.137.234", style={"width": "100px", "margin-right": "30px"}),
+                dcc.Input(type="text", id="IPTextInput", value="127.0.0.1", style={"width": "100px", "margin-right": "30px"}),
 
                 #Start sim / get sigfox
                 html.Button("Start simulation", id='gatherDataButton', style={"width": "100px"}),
@@ -169,10 +170,10 @@ app.layout = html.Div([
                 dcc.Input(type="number", id="timeLimit", value=20, placeholder="Time limit", style={"width": "100px"}),
                 
                 #Number of truck
-                dcc.Input(type="text", id="numTrucks", placeholder="Number of trucks", value=61, style={"width": "100px", "margin-top": "10px"}),
+                dcc.Input(type="text", id="numTrucks", placeholder="Number of trucks", value=10, style={"width": "100px", "margin-top": "10px"}),
                 
                 #Waste limit pct
-                dcc.Input(type="number", id='filter_pct', value=80, placeholder= "Waste limit pct."),
+                dcc.Input(type="number", id='filter_pct', value=60, placeholder= "Waste limit pct."),
 
                 # Number of attempts
                 dcc.Input(type="number", id='numberOfAttempts', value=10, placeholder= "Number of attempts"),
@@ -181,7 +182,7 @@ app.layout = html.Div([
                 dcc.Dropdown(id="fssDropdown", searchable=True, placeholder="First solution strategy", value=1, options=[1, 2, 3], style={"width": "100px","margin-top": "5px"}),
 
                 #Local solution strategy 
-                dcc.Dropdown(id="lssDropdown", searchable=True, placeholder="Local search strategy", value=3, options=[1, 2, 3, 4], style={"width": "100px","margin-top": "5px"}),
+                dcc.Dropdown(id="lssDropdown", searchable=True, placeholder="Local search strategy", value=1, options=[1, 2, 3, 4], style={"width": "100px","margin-top": "5px"}),
                 ])
 
         ])
@@ -256,6 +257,7 @@ def Callupdate_scatterMap(selectedTable):
 # ______PLOT ROUTES______
 @app.callback(Output("Map1", "figure", allow_duplicate=True),
             Output("routesOutput", "children"),
+            Output("KPIField", "children"),
             Input('planRouteButton', "n_clicks"),
             State('tableDropdown', "value"),
             State('timeLimit', "value"),
@@ -263,8 +265,9 @@ def Callupdate_scatterMap(selectedTable):
             State('fssDropdown', "value"),
             State('lssDropdown', "value"),
             State('filter_pct', "value"),
+            State('numberOfAttempts', "value"),
             prevent_initial_call=True)
-def DisplayRoutes(n_clicks, select_table, timeLimit, numTrucks, fss, lss, waste_limit):
+def DisplayRoutes(n_clicks, select_table, timeLimit, numTrucks, fss, lss, waste_limit, numberOfAttempts):
     print("@ DisplayRoutes", select_table, timeLimit, numTrucks, fss, lss, waste_limit)
     fig = FigCraft(select_table)
 
@@ -296,18 +299,17 @@ def DisplayRoutes(n_clicks, select_table, timeLimit, numTrucks, fss, lss, waste_
     ttem = 5                #Time it takes to empty molok
     truck_range = 100
     truck_capacity = 3000
-    numberOfAttempts = 10
     print("Creating MasterPlanner object")
     mp = MasterPlanner(600, 2200, molok_pos_list, int(ttem), molok_fillpcts, 500, avg_grs, int(truck_range), int(numTrucks), int(truck_capacity), 600, 1400, int(timeLimit), first_solution_strategy=str(fss), local_search_strategy=str(lss), num_attempts=int(numberOfAttempts))
         
-    print("[!] Planning routes -> ", end="")
+    print("[!] Planning routes -> ")
     sys.stdout = open(os.devnull, 'w')      #Disable print()
     mp.master()
     routes = mp.current_best["routes"]
     sys.stdout = sys.__stdout__             #Enable print()
-    print(routes)
-    print(mp.empty_molok_times)
-    print(mp.rp.routing.status())
+    #print(routes)
+    #print(mp.empty_molok_times)
+    #print(mp.rp.routing.status())
 
     emptiedMoloks = mp.empty_molok_times
     
@@ -320,7 +322,7 @@ def DisplayRoutes(n_clicks, select_table, timeLimit, numTrucks, fss, lss, waste_
     latest_rows_data = dataS.fetch_latest_rows("main")
     
     max_epoch_time = max(list(zip(*latest_rows_data))[4])
-    dataS.set_fillpcts_to_0(emptyMoloks_C, float(max_epoch_time))
+    #dataS.set_fillpcts_to_0(emptyMoloks_C, float(max_epoch_time))
 
     # Create converted routes for GUI
     convertedRoutes = []    
@@ -333,10 +335,9 @@ def DisplayRoutes(n_clicks, select_table, timeLimit, numTrucks, fss, lss, waste_
                 c_route.append(filteredMoloks[molok])
         convertedRoutes.append(c_route)
     #print("ConvertedRoutes", convertedRoutes)
-
-
-
-    
+    route_string, KPI = mp.rp.print_solution(convertedRoutes, mp.current_best["visit_times"], mp.current_best["truck_loads"], mp.current_best["truck_distances"])
+    # KPI_print = str(mp.rp.routing.status())
+    # print(KPI_print)
 
     routeFormattedOutput = ""
     for i, route in enumerate(convertedRoutes):
@@ -369,8 +370,10 @@ def DisplayRoutes(n_clicks, select_table, timeLimit, numTrucks, fss, lss, waste_
             line = {"width" : 3}))
     
 
+    
+    
 
-    return fig, routeFormattedOutput
+    return fig, route_string, KPI #routeFormattedOutput
 
 
 if __name__ == "__main__":

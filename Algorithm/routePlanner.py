@@ -638,7 +638,7 @@ class RoutePlanner:
     def print_solution(self, routes: list, visit_times: list, cumul_load: list, cumul_dist) -> None:
         """Prints solution along with cumulative data and stats on routes"""
 
-        print("\n________Route Planner output________")
+        print("  \n________Route Planner output________")
         # print(f'Objective: {solution.ObjectiveValue()}')        # Tror det er OR-Tools gæt på optimal værdi af total tid
         
         total_time = 0
@@ -646,50 +646,55 @@ class RoutePlanner:
         total_load = 0
         num_trucks = len(routes)
         trucks_utilized = 0
+        route_string = ""
 
         for truck in range(num_trucks):
-            print(f"\nTruck {truck}'s route with node index (visit-times) |driven distance| [cumulative load]:")
-            route_string = f"Truck {truck}: "                   # begin route at depot
             route_lst = routes[truck]                           # save trucks route to var
-            route_visit_times = visit_times[truck]              # save trucks visit times to var
-            route_cumul_load = cumul_load[truck]                # save trucks cumulative load to var
-            route_cumul_dist = cumul_dist[truck]                # save trucks cumulative distance to var
 
-            stops = len(route_lst)
-            for stop_num in range(stops):                       # loop over the length of trucks route
-                node = route_lst[stop_num]                      # molok or depot index (if 0)
-                node_time = route_visit_times[stop_num]         # visit time at node
-                mins_secs = f"{node_time // 60}:{node_time % 60}"
-                node_cumul_load = route_cumul_load[stop_num]    # cumulative load at node
-                node_cumul_dist = route_cumul_dist[stop_num]    # cumulative distance at node
-                node_cumul_dist = node_cumul_dist / 1000        # convert to km
+            if len(route_lst) > 2:
+            
+                route_string += f"  \n  \nTruck {truck}'s route with molok ID:"
+                route_string +=  f"  \nTruck {truck}: "                   # begin route at depot
                 
-                route_string += f"{node} ({mins_secs}) |{node_cumul_dist}| [{node_cumul_load}]"
+                route_visit_times = visit_times[truck]              # save trucks visit times to var
+                route_cumul_load = cumul_load[truck]                # save trucks cumulative load to var
+                route_cumul_dist = cumul_dist[truck]                # save trucks cumulative distance to var
 
-                if stop_num < stops - 1:                        # add an arrow between nodes
-                    route_string += " -> "
-                
-                elif stop_num == stops - 1:                     # add totals to end of route string
-                    route_string += f"\nRoutes total time: {node_time // 60}:{node_time % 60} min \nRoutes total distance: {node_cumul_dist} km \nRoutes total load: {node_cumul_load} kg"
-                    total_time += node_time                     # count total time
-                    total_load += node_cumul_load               # count total load
-                    total_dist += node_cumul_dist               # count total distance
+                stops = len(route_lst)
+                for stop_num in range(stops):                       # loop over the length of trucks route
+                    node = route_lst[stop_num]                      # molok or depot index (if 0)
+                    node_time = route_visit_times[stop_num]         # visit time at node
+                    mins_secs = f"{node_time // 60}:{node_time % 60}"
+                    node_cumul_load = route_cumul_load[stop_num]    # cumulative load at node
+                    node_cumul_dist = route_cumul_dist[stop_num]    # cumulative distance at node
+                    node_cumul_dist = node_cumul_dist / 1000        # convert to km
+                    
+                    route_string += f"{node}"
 
-                    if node_time != 0:                          # If truck actually left depot, count it as utilized
-                        trucks_utilized += 1 
+                    if stop_num < stops - 1:                        # add an arrow between nodes
+                        route_string += " --> "
+                    
+                    elif stop_num == stops - 1:                     # add totals to end of route string
+                        route_string += f"  \nRoutes total time: {node_time // 60}:{node_time % 60} min   \nRoutes total distance: {node_cumul_dist} km   \nRoutes total load: {node_cumul_load} kg"
+                        total_time += node_time                     # count total time
+                        total_load += node_cumul_load               # count total load
+                        total_dist += node_cumul_dist               # count total distance
 
-            print(route_string)
+                        if node_time != 0:                          # If truck actually left depot, count it as utilized
+                            trucks_utilized += 1 
+
+                print(route_string)
         
         # --- key performance indicators ---
         num_moloks = len(self.data['molokPositions'])
-        final_string = f"\n___Key performance indicators___\n\nMoloks emptied: {num_moloks} \n"
-        final_string += f"Trucks utilized: {trucks_utilized} \n"
-        final_string += f"Total time spent: {total_time // 60}:{total_time % 60} min \nTotal distance driven: {total_dist} km \nTotal load collected: {total_load} kg \n"
-        final_string += f"Average number of moloks pr. route: {num_moloks / trucks_utilized} moloks/route \n"
+        final_string = f"  \n___Key performance indicators___  \n  \nMoloks emptied: {num_moloks}   \n"
+        final_string += f"Trucks utilized: {trucks_utilized}   \n"
+        final_string += f"Total time spent: {total_time // 60}:{total_time % 60} min   \nTotal distance driven: {total_dist} km   \nTotal load collected: {total_load} kg   \n"
+        final_string += f"Average number of moloks pr. route: {num_moloks / trucks_utilized} moloks/route   \n"
         avg_secs_pr_route = total_time / trucks_utilized
-        final_string += f"Average time spent pr. route: {int(avg_secs_pr_route // 60)}:{int(avg_secs_pr_route % 60)} min/route \n"
-        final_string += f"Average distance driven pr. route: {total_dist / trucks_utilized} km/route \n"
-        final_string += f"Average load collected pr. route: {total_load / trucks_utilized} kg/route \n"
+        final_string += f"Average time spent pr. route: {int(avg_secs_pr_route // 60)}:{int(avg_secs_pr_route % 60)} min/route   \n"
+        final_string += f"Average distance driven pr. route: {total_dist / trucks_utilized} km/route   \n"
+        final_string += f"Average load collected pr. route: {total_load / trucks_utilized} kg/route   \n"
 
         print(final_string)
 
