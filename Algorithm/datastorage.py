@@ -19,7 +19,7 @@ class DataStorage:
     Manipulates data and presents it to 'Route Planner' or 'GUI'
     """
 
-    def __init__(self, center_coordinates = (57.01466, 9.987159), scale = 0.01) -> None:
+    def __init__(self, center_coordinates = (57.0336483, 9.9261796), scale = 0.05) -> None:
         """
         There are two different ways to initialize DataStorages comms
         1. with ADDR = '(IP, PORT)' -> creates server socket for communication with simulation
@@ -269,7 +269,7 @@ class DataStorage:
                 return f"No valid sections found for period {period_start} to {period_end}"
             
             # finding avg. growthrate of sections that are part of specified period
-            molok_avg_growthrate = (sum_period_growthrates / num_valid_periods) / 60 # go from growth/min to growth/sec
+            molok_avg_growthrate = (sum_period_growthrates / num_valid_periods)
             avg_growthrates[key] = molok_avg_growthrate
 
         return avg_growthrates

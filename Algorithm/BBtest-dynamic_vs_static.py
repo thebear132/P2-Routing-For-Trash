@@ -47,7 +47,6 @@ class FindStaticRoutes:
 
         depot_open = 600            # hhmm time
         depot_close = 2200          # hhmm time
-        depot_pos = (57.014, 9.98)  # decimal degrees coords
 
         ttem = 5                # time to empty molok
         molok_capacity = 500    # kg
@@ -67,20 +66,20 @@ class FindStaticRoutes:
 
 
         num_trucks = 61
-        truck_range = 150       # km
+        truck_range = 100       # km
         truck_capacity = 3000   # kg
         truck_start = 600       # work start
         truck_stop = 1400       # work end
 
         num_attempts = 1        # must not drop molok nor add slack
 
-        mp = routePlanner.MasterPlanner(depot_open, depot_close, depot_pos, molok_pos_list, ttem, molok_fillpcts,
+        mp = routePlanner.MasterPlanner(depot_open, depot_close, molok_pos_list, ttem, molok_fillpcts,
                                                 molok_capacity, avg_grs, truck_range, num_trucks, truck_capacity, truck_start,
                                                 truck_stop, time_limit, num_attempts=num_attempts)
         
         return mp
     
-    def check_fill_lvls(self, empty_at_pct: int = 35):
+    def check_fill_lvls(self, empty_at_pct: int = 50):
         latest_rows = self.datastorage.fetch_latest_rows(cursor='main')
         # print(f"Latest rows:\n{latest_rows}")
         last_row = latest_rows[-1]
@@ -93,7 +92,7 @@ class FindStaticRoutes:
             if fill_pct > empty_at_pct:
                 if self.conservative_growth == None:            # when the first ever molok has to be emptied, calc a conservative gr
                     reg_dict = self.datastorage.lin_reg_sections()
-                    avg_growthrates = self.datastorage.avg_growth_over_period(reg_dict, 0, time.time() * 2)
+                    avg_growthrates = self.datastorage.avg_growth_over_period(reg_dict, 0, time.time() * 2) # seconds
                     max_avg_gwr = max(avg_growthrates)
                     self.conservative_growth = max_avg_gwr * 1.25
                     print(f"conservative gr set to: {self.conservative_growth}")
@@ -109,7 +108,7 @@ class FindStaticRoutes:
                 # print("After sorting: ", position)
                 position = (float(position[0]), float(position[1]))
 
-                growth_rate = self.conservative_growth * 60            # times 60 to go from pct/second to pct/minute
+                growth_rate = self.conservative_growth
                 print(f"found molok to empty: {molok_id, position, fill_pct, growth_rate}")
                 moloks_to_empty.append([molok_id, position, fill_pct, growth_rate])
         
@@ -291,7 +290,7 @@ class RunStaticRoutes:
 if __name__ == '__main__':
 
     seed = 10
-    num_moloks = 100
+    num_moloks = 20
 
     stat_MP = FindStaticRoutes(seed, num_moloks)
     stat_MP.create_static_routes()
