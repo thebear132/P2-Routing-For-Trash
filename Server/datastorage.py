@@ -69,7 +69,7 @@ class DataStorage:
         else:
             self.main_cur.execute(f"CREATE TABLE {table_name}(ID INTEGER PRIMARY KEY, molokID INTEGER, molokPos TUPLE, fillPct REAL, timestamp REAL)")
             if table_type == "sim": # only auto generate data if simulations are to be run
-                self.rng = np.random.default_rng(self.seed) # creates a np.random generator-object with specified seed. Use self.rng for randomness
+                self.rng = np.random.default_rng(seed) # creates a np.random generator-object with specified seed. Use self.rng for randomness
                 self.generate_init_data(table_name, num_moloks)
 
         return table_name
@@ -145,7 +145,7 @@ class DataStorage:
         # print("molok coords", molok_coords)
         # sim fillPcts - use random (not normDist)
     
-        init_fill_pcts = 50 * self.rng.random(num_moloks)
+        init_fill_pcts = 20 * self.rng.random(num_moloks)
         # print("init", init_fill_pcts)
         
         # sim timestamp
@@ -196,7 +196,7 @@ class DataStorage:
         growthrates_dict = {}
 
         for molok_id in range(self.num_moloks):
-            molok_data = self.fetch_data_by_molok_ID(self.table_name, molok_id)
+            molok_data = self.fetch_data_by_molok_ID(molok_id)
             
             first_timestamp = molok_data[0][4] # epoch time
 
@@ -270,18 +270,18 @@ class DataStorage:
                 return f"No valid sections found for period {period_start} to {period_end}"
             
             # finding avg. growthrate of sections that are part of specified period
-            molok_avg_growthrate = sum_period_growthrates / num_valid_periods
+            molok_avg_growthrate = (sum_period_growthrates / num_valid_periods) /60 # go from growth/min to growth/sec
             avg_growthrates[key] = molok_avg_growthrate
 
         return avg_growthrates
 
-    def set_fillpcts_to_0(self, routePlanner_data, route_start_time):
+    def set_fillpcts_to_0(self, molok_emptytimes, route_start_time):
         """
         From routeplanner, when moloks are emptied from routes,
         this function sets the filling procentage to 0 by updating the latest rows in the database. 
         """
         
-        for molok in routePlanner_data:
+        for molok in molok_emptytimes:
             molok_id = molok[0]
             timestamp = molok[1] + route_start_time
             self.main_cur.execute(f"SELECT molokPos FROM '{self.table_name}' WHERE molokID = '{molok_id}'")
@@ -479,6 +479,9 @@ class DataStorage:
 
         else: return False # meaning thread already running
 
+    def join_sim_thread(self):
+        """Allows GUI to join simThread into another thread. It lets the GUI update the map as soon as the sim thread is done"""
+        self.sim_thread.join()
 
 
 if __name__ == "__main__":

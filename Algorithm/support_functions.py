@@ -1,68 +1,5 @@
 import numpy as np
 import time
-import webbrowser
-import folium
-
-
-
-def create_map(location=(57.04830168757387, 9.915331444926698), zoom_start=17, max_zoom=24) -> object:
-    """
-    Creates an empty folium.Map object.
-
-    Inputs:
-    ---
-    - location: A tuple or list of coordinates.
-    - zoom_start: The zoom level when created.
-    - max_zoom: The max zoom level.
-    
-    Returns:
-    ---
-    - map_obj which is a folium.Map object.
-    """
-
-    map_obj = folium.Map(location=location, zoom_start=zoom_start, max_zoom=max_zoom)
-    
-    return map_obj
-
-
-def create_circles(map_obj:object, number_of_moloks:int, coords:list, radius=1, color='red') -> object:
-    """
-    Creates circles of a specified radius on the map_obj.
-    
-    Inputs:
-    ---
-    - map_obj: A folium object to plot in.
-    - number_of_moloks: the number of moloks.
-    - coords: The location for the RSSI values to be plotted at.
-    - radius: The radius of the circles to be plotted in meters.
-    
-    Returns:
-    ---
-    - A map_obj with plotted RSSI values.
-    """
-
-    for i in range(number_of_moloks):
-            folium.Circle(location=coords[i], radius=radius, fill=True, color=color).add_to(map_obj)
-
-    return map_obj
-
-
-def save_and_show_map(map_obj:object, name = 'gps_vis') -> None:
-    """
-    Saves a folium map object in html with a given name.
-
-    Inputs:
-    ---
-    - map_obj: A folium map object to be saved.
-    - name: The name of the html file to be saved.
-
-    Returns:
-    ---
-    - None
-    """
-    map_obj.save(f'{name}.html')
-    webbrowser.open(f'{name}.html')
-
 
 def decimaldegrees_to_meters(coords_tuple1, coords_tuple2):
 
@@ -131,7 +68,7 @@ def molokTimeWindows(fillPcts, estGrowthrates, slack: int):
         if x < 0:           # makes it so the smallest timewindow is [0, 0], meaning instant 100% fillpct
             x = 0
         
-        x += slack * 60          # slack is added last
+        x += slack * 60         # slack is added last
 
         TWs[i] = [0, int(x)]
 
