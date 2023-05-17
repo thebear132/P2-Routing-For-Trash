@@ -144,7 +144,7 @@ class DataStorage:
         # print("molok coords", molok_coords)
         # sim fillPcts - use random (not normDist)
     
-        init_fill_pcts = 50 * self.rng.random(num_moloks)
+        init_fill_pcts = 20 * self.rng.random(num_moloks)
         # print("init", init_fill_pcts)
         
         # sim timestamp

@@ -43,7 +43,7 @@ class FindStaticRoutes:
     
     def make_master_planner(self, moloks_to_empty):
 
-        time_limit = 3             # seconds
+        time_limit = 20             # seconds
 
         depot_open = 600            # hhmm time
         depot_close = 2200          # hhmm time
@@ -80,7 +80,7 @@ class FindStaticRoutes:
         
         return mp
     
-    def check_fill_lvls(self, empty_at_pct: int = 60):
+    def check_fill_lvls(self, empty_at_pct: int = 35):
         latest_rows = self.datastorage.fetch_latest_rows(cursor='main')
         # print(f"Latest rows:\n{latest_rows}")
         last_row = latest_rows[-1]
@@ -223,6 +223,7 @@ class RunStaticRoutes:
             for day in self.static_dict:                  # get key in routes dict
 
                 while day != self.current_day:              # sim until days match
+                    print(f"\n@ Day{self.current_day}")
                     self.stat_DS.startSim(ADDR=self.ADDR, send_freq=1)
                     self.stat_DS.sim_thread.join()
                     self.current_day += 1
@@ -285,12 +286,12 @@ class RunStaticRoutes:
             
             # when a cycle is over, count self.current_cycle up 1
             self.current_cycle += 1
-            self.current_day += 1
+            self.current_day = 1        # reset current day
 
 if __name__ == '__main__':
 
     seed = 10
-    num_moloks = 10
+    num_moloks = 100
 
     stat_MP = FindStaticRoutes(seed, num_moloks)
     stat_MP.create_static_routes()
