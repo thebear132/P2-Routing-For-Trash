@@ -233,10 +233,7 @@ class MasterPlanner:
         while self.try_num <= self.goal_tries:
 
             print(f"\n---------- attempt {self.try_num} of {self.goal_tries} ----------")
-
-            success = self.prep_rp()
-            if success:
-                print("Route planner created succesfully")
+            self.prep_rp()
             
             solver_status, routes, visit_times, truck_loads, truck_distances = self.run_rp()
 
@@ -254,7 +251,6 @@ class MasterPlanner:
 
                 self.try_num += 1     # after action is taken, increment and continue to next try
                 continue                                    
-
 
             if self.try_num == self.goal_tries:     # only use when routes are presented at end
                 routes = self.update_routes(routes)
@@ -703,11 +699,11 @@ class RoutePlanner:
 
         # Setting first solution heuristic.
         search_parameters = pywrapcp.DefaultRoutingSearchParameters()
-        search_parameters.first_solution_strategy = (self.first_solution_strategy)
+        search_parameters.first_solution_strategy = self.first_solution_strategy
 
         if self.metaheuristics == True:
             print("applying metaheuristics")
-            search_parameters.local_search_metaheuristic = (self.local_search_strategy)
+            search_parameters.local_search_metaheuristic = self.local_search_strategy
 
         if self.solution_limit != None:     # if solution limit provided, use that instead of time limit (really only for testing)
             search_parameters.solution_limit = self.solution_limit
@@ -740,9 +736,9 @@ class RoutePlanner:
 
 if __name__ == "__main__":
 
-    num_trucks = 5
+    num_trucks = 1
     ttem = 5                                            # time to empty molok
-    num_moloks = 10
+    num_moloks = 2
     truck_range = 150
     truck_capacity = 3000
     timelimit = 15
@@ -756,7 +752,7 @@ if __name__ == "__main__":
     # molok_fillpcts = [80, 90, 75]
     # avg_grs = [0.05, 0.04, 0.06]                        # avg growthrates
 
-    molok_pos_list_of_lists = sf.normal_distribution(45, 10, 0.1, num_moloks)
+    molok_pos_list_of_lists = sf.normal_distribution(57, 10, 0.1, num_moloks)
     molok_pos_list = []
     for pos in molok_pos_list_of_lists:
         molok_pos_list.append(tuple(pos))
@@ -765,11 +761,11 @@ if __name__ == "__main__":
     avg_grs = np.random.normal(0.1, 0.1, num_moloks)
     avg_grs = avg_grs / 60 # from min to sec
 
-    molok_fillpcts[2] = 110
+    # molok_fillpcts[2] = 110
 
 
-    mp = MasterPlanner(600, 2200, (45, 10), molok_pos_list, ttem, molok_fillpcts.tolist(), 500, avg_grs.tolist(), truck_range, num_trucks,
-                       truck_capacity, 600, 1400, timelimit, first_solution_strategy, local_search_strategy, num_attempts)
+    mp = MasterPlanner(600, 2200, molok_pos_list, ttem, molok_fillpcts.tolist(), 500, avg_grs.tolist(), truck_range, num_trucks,
+                       truck_capacity, 600, 1400, timelimit, first_solution_strategy=first_solution_strategy, local_search_strategy=local_search_strategy, num_attempts=num_attempts)
 
     
     mp.master()
@@ -781,7 +777,8 @@ if __name__ == "__main__":
 
     overfill = mp.identify_overfill()
     print(overfill)
-    print(mp.rp.data)
+    # print(mp.rp.data)
+    mp.rp.print_solution(mp.current_best['routes'], mp.current_best['visit_times'], mp.current_best['truck_loads'], mp.current_best['truck_distances'])
     # mp.rp.print_solution(mp.current_best['routes'], mp.current_best['visit_times'], mp.current_best['truck_loads'], mp.current_best['truck_distances'])
 
     exit()

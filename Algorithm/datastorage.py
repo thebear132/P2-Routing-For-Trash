@@ -503,8 +503,10 @@ if __name__ == "__main__":
     num_moloks = 1000
     table_type = "sim"
     myDS = DataStorage()
-    
+    myDS.create_and_connect_to_DB()
     table_name = myDS.create_table(seed=seed, num_moloks=num_moloks, table_type=table_type)
     myDS.select_table(table_name, seed, num_moloks)
 
     print(myDS.fetch_latest_rows('main'))
+
+    print(myDS.get_sigfox_data(time.time() - 1000000))
