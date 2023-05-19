@@ -1,0 +1,8 @@
+scipy
+pandas
+numpy
+plotly
+dash
+tqdm
+ortools
+sqlite3
