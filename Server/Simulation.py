@@ -65,7 +65,7 @@ class Simulation:
                     send_list = [id, fill_pct, time_stamp]      # Collect the values in a tuple with molokID
 
                     sl = pickle.dumps(send_list)                # dumps: (MolokID, fill_pct, sendhyp)
-                    # sleep(0.01)
+                    sleep(0.01)
                     # print(send_list[0], end=", ")
                     UDP_data_socket.send(sl)
             
