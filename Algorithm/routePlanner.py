@@ -433,7 +433,8 @@ class RoutePlanner:
             data['demands'].append(demand)
 
         # calc time windows based on fillPct and lin. growthrate f(x)=ax+b from lin. reg.
-        data['timeWindows'] = [[0, int(data['depotClose'] - data['depotOpen']) * 60]] # first index is depot TW
+        data['timeWindows'] = [[0, sf.hhmm_to_minutes(data['depotOpen'], data['depotClose']) * 60]] # first index is depot TW
+        print(data['timeWindows'])
         molok_TWs = sf.molokTimeWindows(fillPcts=molokArgs[2], estGrowthrates=molokArgs[4], slack=molokArgs[5])
         for tw in molok_TWs:
             data['timeWindows'].append(tw)
@@ -465,8 +466,8 @@ class RoutePlanner:
         """
         dim_name = 'Time' # name of dimension
 
-        workhours_in_minutes = self.data["truckWorkStop"] - self.data["truckWorkStart"]
-        # print(f"workhours in minutes: {workhours_in_minutes}")
+        workhours_in_minutes = sf.hhmm_to_minutes(self.data["truckWorkStart"], self.data["truckWorkStop"])
+        print(f"workhours in minutes: {workhours_in_minutes}")
 
         self.routing.AddDimension(
             self.transit_callback_index,
@@ -745,15 +746,15 @@ if __name__ == "__main__":
     for pos in molok_pos_list_of_lists:
         molok_pos_list.append(tuple(pos))
 
-    molok_fillpcts = np.random.normal(70, 7.5, num_moloks)
+    molok_fillpcts = np.random.normal(20, 7.5, num_moloks)
     avg_grs = np.random.normal(0.1, 0.1, num_moloks)
     avg_grs = avg_grs / 60 # from min to sec
 
-    molok_fillpcts[2] = 110
+    # molok_fillpcts[2] = 110
 
 
-    mp = MasterPlanner(600, 2200, (45, 10), molok_pos_list, ttem, molok_fillpcts.tolist(), 500, avg_grs.tolist(), truck_range, num_trucks,
-                       truck_capacity, 600, 1400, timelimit, first_solution_strategy, local_search_strategy, num_attempts)
+    mp = MasterPlanner(600, 2200, molok_pos_list, ttem, molok_fillpcts.tolist(), 500, avg_grs.tolist(), truck_range, num_trucks,
+                       truck_capacity, 600, 1400, timelimit, depot_pos=(45, 10), first_solution_strategy=first_solution_strategy, local_search_strategy=local_search_strategy,num_attempts=num_attempts)
 
     
     mp.master()

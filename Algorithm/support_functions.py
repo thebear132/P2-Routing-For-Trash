@@ -74,7 +74,26 @@ def molokTimeWindows(fillPcts, estGrowthrates, slack: int):
 
     return TWs
 
+def hhmm_to_minutes(start, stop):
+    """Calculates delta time in minutes from hh:mm format of open to close or workstart to workstop"""
+    start_mins = int(str(start)[-2:])               # last two digits will always be minutes
+    start_hours = int((start - start_mins) / 100)   # from format hhmm to hh00 to hh
+
+    stop_mins = int(str(stop)[-2:])
+    stop_hours = int((stop - stop_mins) / 100)
+    
+    # convert hours to minutes and add them to their respective 'mins' var
+    start_mins += start_hours * 60
+    stop_mins += stop_hours * 60
+
+    delta_mins = stop_mins - start_mins
+
+    return delta_mins
+
+
+
 if __name__ == '__main__':
+
     num_moloks = 10
 
     # simulation variables
